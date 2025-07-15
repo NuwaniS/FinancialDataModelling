@@ -2,6 +2,7 @@
 
 library(quantmod)
 library(forecast)
+library(rugarch)
 
 source('helper_functions.R')
 
@@ -22,6 +23,7 @@ symbol_prices <- na.omit(symbol_prices)
 log_returns <- dailyReturn(symbol_prices, type = "log")
 
 results <- list()
+var_results <- list()
 
 # Define look-back window lengths in trading days
 window_lengths <- list(
@@ -37,12 +39,16 @@ forward_start_date <- as.Date("2025-01-02")
 forward_end_date   <- as.Date("2025-05-19")
 
 test_dates <- index(log_returns)[index(log_returns) >= forward_start_date & index(log_returns) <= forward_end_date]
+test_data_1d_all <- log_returns[test_dates]
 
-# For each test date filter different look back windows
-for (current_date in test_dates) {
-  current_date_string <- index(log_returns[index(log_returns) == current_date])
-  for (win_name in names(window_lengths)) {
-    window_len <- window_lengths[[win_name]]
+# Consider the windows for the first loop since it is more favourable for Var Calculations
+for (win_name in names(window_lengths)) {
+  window_len <- window_lengths[[win_name]]
+  # Series to store 1d VaR values
+  vaR_series_95 <- numeric(0)
+  vaR_series_99 <- numeric(0)
+  for (current_date in test_dates) {
+    current_date_string <- index(log_returns[index(log_returns) == current_date])
     
     test_data_1d <- log_returns[index(log_returns) == current_date]
     test_data_10d <- log_returns[index(log_returns) >= current_date]
@@ -81,6 +87,10 @@ for (current_date in test_dates) {
     
     # Historical VaR
     historical_var = quantile(training_data, probs = 0.05, na.rm = TRUE)  #95% confidence
+    vaR_series_95 <- c(vaR_series_95, historical_var)
+    
+    historical_var = quantile(training_data, probs = 0.01, na.rm = TRUE)  #99% confidence
+    vaR_series_99 <- c(vaR_series_99, historical_var)
     
     # Store results
     results[[length(results) + 1]] <- data.frame(
@@ -113,10 +123,38 @@ for (current_date in test_dates) {
       ARIMA_10d_MAPE = arima_10d$mape
     )
   }
+  
+  # VaR Metrics
+  vaR_xts_95 <- xts(vaR_series_95, order.by = index(test_data_1d_all))
+  vaR_xts_99 <- xts(vaR_series_99, order.by = index(test_data_1d_all))
+  
+  var_95_metrics <- VaRTest(0.05, test_data_1d_all, vaR_xts_95, 0.95)
+  var_99_metrics <- VaRTest(0.01, test_data_1d_all, vaR_xts_99, 0.99)
+  
+  # Store the plots in folders
+  
+  # Store Var Results
+  var_results[[length(var_results) + 1]] <- data.frame(
+    LookBackWin = win_name,
+    var_95_exp_violations = var_95_metrics$expected.exceed,
+    var_95_violations = var_95_metrics$actual.exceed,
+    var_95_kupic_p = var_95_metrics$uc.LRp,
+    var_95_kupic_decision = var_95_metrics$uc.Decision,
+    var_95_chris_p = var_95_metrics$cc.LRp,
+    var_95_chris_decision = var_95_metrics$cc.Decision,
+    var_99_exp_violations = var_99_metrics$expected.exceed,
+    var_99_violations = var_99_metrics$actual.exceed,
+    var_99_kupic_p = var_99_metrics$uc.LRp,
+    var_99_kupic_decision = var_99_metrics$uc.Decision,
+    var_99_chris_p = var_99_metrics$cc.LRp,
+    var_99_chris_decision = var_99_metrics$cc.Decision
+  )
 }
 
 # Combine results into a single data frame
 final_results <- do.call(rbind, results)
+final_var_results <- do.call(rbind, var_results)
 
 # Save results to CSV
-write.csv(final_results, "results_20250714.csv", row.names = FALSE)
+write.csv(final_results, "results_20250715.csv", row.names = FALSE)
+write.csv(final_var_results, "var_results_20250715.csv", row.names = FALSE)

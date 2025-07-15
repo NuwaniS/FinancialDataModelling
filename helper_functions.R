@@ -19,7 +19,6 @@ library(Metrics)
 # 7. ARCH-LM Test
 # 8. forecast evaluation
 # 9. Zoomed in histogram
-# 10. VaR Evaluation
 
 # Define a function for the plots
 plot_time_series_data <- function(model_data, model_name) {
@@ -333,8 +332,4 @@ plot_zoomed_hist <- function(model_data, model_name, tail_range = 3) {
   
   # Add legend
   legend("topright", legend=c("Empirical", "Normal"), col=c("black", "orange"), lwd=2)
-}
-
-var_evaluation <- function(var_values, actual_values) {
-  
 }

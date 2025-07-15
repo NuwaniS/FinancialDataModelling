@@ -1,5 +1,6 @@
 library(quantmod)
 library(xts)
+library(rugarch)
 
 # Load data
 # log_returns from the financial_model.R will be used
@@ -34,3 +35,5 @@ violation_rate <- mean(violations, na.rm = TRUE)
 cat("Number of Violations:", num_violations, "\n")
 cat("Expected Violations (at", 100 * (1 - alpha), "%):", expected_violations, "\n")
 cat("Violation Rate:", round(violation_rate * 100, 2), "%\n")
+
+VaRTest(alpha, actual_returns, VaR_xts, 0.95)
