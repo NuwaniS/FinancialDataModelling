@@ -1,14 +1,25 @@
 if (!require("tseries")) install.packages("tseries")
+if (!require("nortest")) install.packages("nortest")
+if (!require("FinTS")) install.packages("FinTS")
+if (!require("Metrics")) install.packages("Metrics")
 
 library(tseries)
-
+library(nortest)
+library(forecast)
+library(FinTS)
+library(Metrics)
 #This script contains a set of common function required for the project.
 #
-#1. plot_time_series_data
-#2. stationarity_tests
-#3. Independence test
-#4. normality tests
-
+# 1. plot_time_series_data
+# 2. stationarity_tests
+# 3. Independence test
+# 4. normality tests
+# 5. calculate_arima_metrics
+# 6. two sided ks test for ARIMA model data
+# 7. ARCH-LM Test
+# 8. forecast evaluation
+# 9. Zoomed in histogram
+# 10. VaR Evaluation
 
 # Define a function for the plots
 plot_time_series_data <- function(model_data, model_name) {
@@ -35,6 +46,9 @@ plot_time_series_data <- function(model_data, model_name) {
   
   # Add legend
   legend("topright", legend=c("Empirical", "Normal"), col=c("black", "orange"), lwd=2)
+  
+  #Boxplot
+  boxplot(model_data, main = "Boxplot of Adjusted Closing Prices", ylab = "Price")
 }
 
 # Define a function for stationarity tests
@@ -183,6 +197,144 @@ normality_tests <- function(model_data) {
     }
   )
   
+  #Kolmogorov-Smirnov (KS) Test
+  tryCatch(
+    {
+      ks_test <- ks.test(model_data, 'pnorm')
+      ks_p <- ks_test$p.value
+      ks_stat <- ks_test$statistic
+      if (ks_p < 0.05) {
+        ks_decision <- "Reject H0: Data does not follow a normal distribution."
+      } else {
+        ks_decision <- "Failed to reject H0: Data is likely normally distributed"
+      }
+    },
+    error = function(e) {
+      ks_p <- -1
+      ks_stat <- -1
+      ks_decision <- 'Test Failed'
+    }
+  )
+  
+  # Histogram
+  hist(model_data, breaks = 50, main = "Histogram", xlab = "Residuals")
+  
+  # QQ-plot
+  qqnorm(model_data, main = "QQ-Plot")
+  qqline(model_data)
+  
   return(list(shapiro_p_value = shapiro_p, shapiro_decision = s_decision,
-              jarque_p_value = jarque_p, jarque_decision = j_decision))
+              jarque_p_value = jarque_p, jarque_decision = j_decision, 
+              ks_p_value = ks_p, ks_statistic = ks_stat, ks_decision = ks_decision))
+}
+
+calculate_arima_metrics <- function(arima_model) {
+  aic <- AIC(arima_model)
+  
+  bic <- BIC(arima_model)
+  
+  rmse <- sqrt(mean(residuals(arima_model)^2))
+
+  mae <- mean(abs(residuals(arima_model)))
+  
+  return(list(aic = aic, bic = bic, rmse= rmse, mae = mae))
+}
+
+# Two sided ks test to compare empirical distribution with simulated distribution
+# emp_model is an xts object
+ks_test_arima <- function(emp_model, fit_model) {
+  # Set the number of simulations to match the original series length
+  n <- length(emp_model)
+  
+  # Simulate data based on the manually fitted ARIMA model parameters
+  set.seed(123)
+  sim_model <- arima.sim(model = list(order = arimaorder(fit_model),
+                                       ar = fit_model$coef[grep("ar", names(fit_model$coef))],
+                                       ma = fit_model$coef[grep("ma", names(fit_model$coef))]), n = n)
+  
+  # Rescale the simulated series to match the empirical distribution of log_returns
+  sim_model <- scale(sim_model) * sd(emp_model) + mean(emp_model)
+  
+  # Plot empirical distribution with rescaled simulated distributions for comparison
+  hist(emp_model, breaks = 50, probability = TRUE, main = "Empirical vs. Rescaled Simulated Distributions of Log Returns",
+       xlab = "Log Returns", col = rgb(0, 0, 1, 0.4))
+  lines(density(sim_model), col = "red", lwd = 2)
+  legend("topright", legend = c("Empirical", "Simulated (Auto ARIMA)"),
+         col = c("blue", "red"), lty = 1, lwd = 2)
+  
+  ks_test <- ks.test(as.numeric(emp_model), sim_model)
+  ks_p <- ks_test$p.value
+  ks_stat <- ks_test$statistic
+  if (ks_p < 0.05) {
+    ks_decision <- "Reject H0: Two models do not follow the same distribution."
+  } else {
+    ks_decision <- "Failed to reject H0: Two models likely follow the same distribution"
+  }
+  
+  return(list(ks_p_value = ks_p, ks_statistic = ks_stat, ks_decision = ks_decision))
+}
+
+
+arch_lm_test <- function(residuals) {
+  
+  arch_test <- ArchTest(residuals, lags = 1)  # test with lag 1
+  arch_1_p <- arch_test$p.value
+  if (arch_1_p < 0.05) {
+    arch_1_decision <- "Reject H0: There is significant evidence of ARCH effects"
+  } else {
+    arch_1_decision <- "Failed to reject H0: No significant evidence of ARCH effects"
+  }
+  
+  arch_test <- ArchTest(residuals, lags = 5)  # test with lag 5
+  arch_5_p <- arch_test$p.value
+  if (arch_5_p < 0.05) {
+    arch_5_decision <- "Reject H0: There is significant evidence of ARCH effects"
+  } else {
+    arch_5_decision <- "Failed to reject H0: No significant evidence of ARCH effects"
+  }
+  
+  arch_test <- ArchTest(residuals, lags = 10)  # test with lag 10
+  arch_10_p <- arch_test$p.value
+  if (arch_10_p < 0.05) {
+    arch_10_decision <- "Reject H0: There is significant evidence of ARCH effects"
+  } else {
+    arch_10_decision <- "Failed to reject H0: No significant evidence of ARCH effects"
+  }
+  
+  return(list(arch_1_p = arch_1_p, arch_1_decision = arch_1_decision,
+              arch_5_p = arch_5_p, arch_5_decision = arch_5_decision,
+              arch_10_p = arch_10_p, arch_10_decision = arch_10_decision))
+}
+
+forecast_evaluation <- function(actual_values, forecast_values) {
+  
+  return(list(mae = mae(actual_values, forecast_values), 
+              rmse = rmse(actual_values, forecast_values), 
+              mape = mape(actual_values, forecast_values)))
+}
+
+# Plot the histogram with zooming
+plot_zoomed_hist <- function(model_data, model_name, tail_range = 3) {
+  
+  # Change the values of min and x_max to get the required range
+  x_min <- mean(model_data) - tail_range * sd(model_data)
+  x_max <- mean(model_data) + tail_range * sd(model_data)
+  x_max <- -0.015
+  x_min <- -0.05
+  
+  hist(model_data, breaks = 50, probability = TRUE, xlim = c(x_min, x_max), 
+       main=paste("Density of ",model_name, " vs Normal Distribution"))
+  
+  # Plot the density of the time series data
+  lines(density(model_data), lwd=2)
+  
+  # Add a normal distribution for comparison
+  curve(dnorm(x, mean = mean(model_data), sd = sd(model_data)), col = "orange", lwd = 2, add = TRUE)
+  
+  # Add legend
+  legend("topright", legend=c("Empirical", "Normal"), col=c("black", "orange"), lwd=2)
+}
+
+var_evaluation <- function(var_values, actual_values) {
+  
 }

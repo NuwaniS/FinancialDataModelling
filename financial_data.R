@@ -8,7 +8,7 @@ getSymbols("^GSPC", src = "yahoo")
 write.zoo(GSPC, file = "GSPC_raw_data.csv", sep = ",")
 
 # FTSE 100 Index data
-getSymbols("^FTSE", src = "yahoo")
+getSymbols("^FTSE", src = "yahoo", from = "2000-01-01")
 write.zoo(FTSE, file = "FTSE_raw_data.csv", sep = ",")
 
 # FTSE 200 Index data
