@@ -8,6 +8,7 @@ library(nortest)
 library(forecast)
 library(FinTS)
 library(Metrics)
+library(xts)
 #This script contains a set of common function required for the project.
 #
 # 1. plot_time_series_data
@@ -19,6 +20,7 @@ library(Metrics)
 # 7. ARCH-LM Test
 # 8. forecast evaluation
 # 9. Zoomed in histogram
+# 10. calculate_garch_metrics
 
 # Define a function for the plots
 plot_time_series_data <- function(model_data, model_name) {
@@ -216,11 +218,11 @@ normality_tests <- function(model_data) {
   )
   
   # Histogram
-  hist(model_data, breaks = 50, main = "Histogram", xlab = "Residuals")
+  #hist(model_data, breaks = 50, main = "Histogram", xlab = "Residuals")
   
   # QQ-plot
-  qqnorm(model_data, main = "QQ-Plot")
-  qqline(model_data)
+  #qqnorm(model_data, main = "QQ-Plot")
+  #qqline(model_data)
   
   return(list(shapiro_p_value = shapiro_p, shapiro_decision = s_decision,
               jarque_p_value = jarque_p, jarque_decision = j_decision, 
@@ -312,6 +314,11 @@ forecast_evaluation <- function(actual_values, forecast_values) {
               mape = mape(actual_values, forecast_values)))
 }
 
+dummy_forecast_evaluation <- function() {
+  
+  return(list(mae = NA, rmse = NA, mape = NA))
+}
+
 # Plot the histogram with zooming
 plot_zoomed_hist <- function(model_data, model_name, tail_range = 3) {
   
@@ -332,4 +339,28 @@ plot_zoomed_hist <- function(model_data, model_name, tail_range = 3) {
   
   # Add legend
   legend("topright", legend=c("Empirical", "Normal"), col=c("black", "orange"), lwd=2)
+}
+
+calculate_garch_metrics <- function(garch_model, order) {
+  
+  if (!is.null(garch_model) && garch_model@fit$convergence == 0) {
+    aic <- infocriteria(garch_model)[1]
+    bic <- infocriteria(garch_model)[2]
+    like <- likelihood(garch_model)
+    if (order == 1) {  # (1,1) model
+      a_b <- coef(garch_model)['alpha1'] + coef(garch_model)['beta1']    
+    } else if (order == 2) {  # (1,2) model
+      a_b <- coef(garch_model)['alpha1'] + coef(garch_model)['beta1'] + coef(garch_model)['beta2']   
+    } else if (order == 3) {  # (2,1) model
+      a_b <- coef(garch_model)['alpha1'] + coef(garch_model)['alpha2'] + coef(garch_model)['beta1']   
+    } else if (order == 4) {  # (2,2) model
+      a_b <- coef(garch_model)['alpha1'] + coef(garch_model)['alpha2'] + coef(garch_model)['beta1'] + coef(garch_model)['beta2']   
+    }
+  } else {
+    aic <- NA
+    bic <- NA
+    like <- NA
+    a_b <- NA
+  }
+  return(list(aic = aic, bic = bic, like = like, a_b = a_b))
 }

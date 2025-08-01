@@ -3,6 +3,7 @@
 library(quantmod)
 library(forecast)
 library(rugarch)
+library(xts)
 
 source('helper_functions.R')
 
@@ -27,12 +28,19 @@ var_results <- list()
 
 # Define look-back window lengths in trading days
 window_lengths <- list(
-  '3_months' = 63,     # 21 trading days/month × 3
-  '6_months' = 126,
-  '1_year'   = 250,
-  '2_year'   = 500,
-  'full'     = NA      # All available data up to date
+# '3_months' = 63,     # 21 trading days/month × 3
+#  '6_months' = 126,
+#  '1_year'   = 250,
+  '2_year'   = 500
+#  'full'     = NA      # All available data up to the selected date
 )
+
+# GARCH parameters
+alpha_95 <- 0.05            # for 95% confidence
+z_95 <- qnorm(alpha_95)        # quantile for normal distribution
+
+alpha_99 <- 0.01            # for 99% confidence
+z_99 <- qnorm(alpha_99)        # quantile for normal distribution
 
 # Set date range for VaR estimation
 forward_start_date <- as.Date("2025-01-02")
@@ -45,8 +53,52 @@ test_data_1d_all <- log_returns[test_dates]
 for (win_name in names(window_lengths)) {
   window_len <- window_lengths[[win_name]]
   # Series to store 1d VaR values
-  vaR_series_95 <- numeric(0)
-  vaR_series_99 <- numeric(0)
+  his_var_series_95 <- numeric(0)
+  his_var_series_99 <- numeric(0)
+  
+  arima_forecast_1d_series <- numeric(0)
+  garch_forecast_11_std_1d_series <- numeric(0)
+  garch_forecast_12_std_1d_series <- numeric(0)
+  garch_forecast_21_std_1d_series <- numeric(0)
+  garch_forecast_22_std_1d_series <- numeric(0)
+  
+  egarch_forecast_11_std_1d_series <- numeric(0)
+  egarch_forecast_12_std_1d_series <- numeric(0)
+  egarch_forecast_21_std_1d_series <- numeric(0)
+  egarch_forecast_22_std_1d_series <- numeric(0)
+  
+  tgarch_forecast_11_std_1d_series <- numeric(0)
+  tgarch_forecast_12_std_1d_series <- numeric(0)
+  tgarch_forecast_21_std_1d_series <- numeric(0)
+  tgarch_forecast_22_std_1d_series <- numeric(0)
+  
+  garch_11std_var_series_95 <- numeric(0)
+  garch_11std_var_series_99 <- numeric(0)
+  garch_21std_var_series_95 <- numeric(0)
+  garch_21std_var_series_99 <- numeric(0)
+  garch_12std_var_series_95 <- numeric(0)
+  garch_12std_var_series_99 <- numeric(0)
+  garch_22std_var_series_95 <- numeric(0)
+  garch_22std_var_series_99 <- numeric(0)
+  
+  egarch_11std_var_series_95 <- numeric(0)
+  egarch_11std_var_series_99 <- numeric(0)
+  egarch_21std_var_series_95 <- numeric(0)
+  egarch_21std_var_series_99 <- numeric(0)
+  egarch_12std_var_series_95 <- numeric(0)
+  egarch_12std_var_series_99 <- numeric(0)
+  egarch_22std_var_series_95 <- numeric(0)
+  egarch_22std_var_series_99 <- numeric(0)
+  
+  tgarch_11std_var_series_95 <- numeric(0)
+  tgarch_11std_var_series_99 <- numeric(0)
+  tgarch_21std_var_series_95 <- numeric(0)
+  tgarch_21std_var_series_99 <- numeric(0)
+  tgarch_12std_var_series_95 <- numeric(0)
+  tgarch_12std_var_series_99 <- numeric(0)
+  tgarch_22std_var_series_95 <- numeric(0)
+  tgarch_22std_var_series_99 <- numeric(0)
+  
   for (current_date in test_dates) {
     current_date_string <- index(log_returns[index(log_returns) == current_date])
     
@@ -63,6 +115,7 @@ for (win_name in names(window_lengths)) {
     }
     
     # EDA for the selected data range
+    # Plot the training data
     
     # Stationary Test for log returns
     log_returns_stest <- stationarity_tests(training_data)
@@ -81,16 +134,586 @@ for (win_name in names(window_lengths)) {
     # ARIMA forecast
     arima_forecast_1d <- forecast(arima_model, h = 1)
     arima_1d <- forecast_evaluation(test_data_1d, arima_forecast_1d$mean)
+    arima_forecast_1d_series <- c(arima_forecast_1d_series, arima_forecast_1d$mean)
     
     arima_forecast_10d <- forecast(arima_model, h = 10)
     arima_10d <- forecast_evaluation(test_data_10d, arima_forecast_10d$mean)
     
-    # Historical VaR
+    #### GARCH ######
+    arch_test <- arch_lm_test(residuals)
+    
+    ## GARCH with student T distribution ##
+    # Fit a GARCH(1,1) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(garchOrder = c(1, 1)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    garch_model_11_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for GARCH(1,1) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    garch_11_std_metrics <- calculate_garch_metrics(garch_model_11_std, 1)
+    
+    if (!is.null(garch_model_11_std) && garch_model_11_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(garch_model_11_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(garch_model_11_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      garch_11_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      garch_forecast_11_std_1d_series <- c(garch_forecast_11_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(garch_model_11_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      garch_11_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_11std_var_series_95 <- c(garch_11std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_11std_var_series_99 <- c(garch_11std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for GARCH(1,1) std", win_name, current_date_string))
+      garch_11_std_1d <- dummy_forecast_evaluation()
+      garch_11_std_10d <- dummy_forecast_evaluation()
+      garch_11std_var_series_95 <- c(garch_11std_var_series_95, NA)
+      garch_11std_var_series_99 <- c(garch_11std_var_series_99, NA)
+      
+      garch_forecast_11_std_1d_series <- c(garch_forecast_11_std_1d_series, NA)
+    }
+    
+    # Fit a GARCH(2,1) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(garchOrder = c(2, 1)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    garch_model_21_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for GARCH(2,1) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    garch_21_std_metrics <- calculate_garch_metrics(garch_model_21_std, 3)
+    
+    if (!is.null(garch_model_21_std) && garch_model_21_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(garch_model_21_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(garch_model_21_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      garch_21_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      garch_forecast_21_std_1d_series <- c(garch_forecast_21_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(garch_model_21_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      garch_21_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_21std_var_series_95 <- c(garch_21std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_21std_var_series_99 <- c(garch_21std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for GARCH(2,1) std", win_name, current_date_string))
+      garch_21_std_1d <- dummy_forecast_evaluation()
+      garch_21_std_10d <- dummy_forecast_evaluation()
+      garch_21std_var_series_95 <- c(garch_21std_var_series_95, NA)
+      garch_21std_var_series_99 <- c(garch_21std_var_series_99, NA)
+      
+      garch_forecast_21_std_1d_series <- c(garch_forecast_21_std_1d_series, NA)
+    }
+    
+    # Fit a GARCH(1,2) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(garchOrder = c(1, 2)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    garch_model_12_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for GARCH(1,2) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    garch_12_std_metrics <- calculate_garch_metrics(garch_model_12_std, 2)
+    
+    if (!is.null(garch_model_12_std) && garch_model_12_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(garch_model_12_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(garch_model_12_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      garch_12_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      garch_forecast_12_std_1d_series <- c(garch_forecast_12_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(garch_model_12_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      garch_12_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_12std_var_series_95 <- c(garch_12std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_12std_var_series_99 <- c(garch_12std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for GARCH(1,2) std", win_name, current_date_string))
+      garch_12_std_1d <- dummy_forecast_evaluation()
+      garch_12_std_10d <- dummy_forecast_evaluation()
+      garch_12std_var_series_95 <- c(garch_12std_var_series_95, NA)
+      garch_12std_var_series_99 <- c(garch_12std_var_series_99, NA)
+      
+      garch_forecast_12_std_1d_series <- c(garch_forecast_12_std_1d_series, NA)
+    }
+    
+    # Fit a GARCH(2,2) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(garchOrder = c(2, 2)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    garch_model_22_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for GARCH(2,2) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    garch_22_std_metrics <- calculate_garch_metrics(garch_model_22_std, 4)
+    
+    if (!is.null(garch_model_22_std) && garch_model_22_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(garch_model_22_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(garch_model_22_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      garch_22_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      garch_forecast_22_std_1d_series <- c(garch_forecast_22_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(garch_model_22_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      garch_22_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_22std_var_series_95 <- c(garch_22std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_22std_var_series_99 <- c(garch_22std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for GARCH(2,2) std", win_name, current_date_string))
+      garch_22_std_1d <- dummy_forecast_evaluation()
+      garch_22_std_10d <- dummy_forecast_evaluation()
+      garch_22std_var_series_95 <- c(garch_22std_var_series_95, NA)
+      garch_22std_var_series_99 <- c(garch_22std_var_series_99, NA)
+      
+      garch_forecast_22_std_1d_series <- c(garch_forecast_22_std_1d_series, NA)
+    }
+    
+    ## eGARCH with student T distribution ##
+    # Fit a eGARCH(1,1) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'eGARCH', garchOrder = c(1, 1)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    egarch_model_11_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for eGARCH(1,1) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    egarch_11_std_metrics <- calculate_garch_metrics(egarch_model_11_std, 1)
+    
+    if (!is.null(egarch_model_11_std) && egarch_model_11_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(egarch_model_11_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(egarch_model_11_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      egarch_11_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      egarch_forecast_11_std_1d_series <- c(egarch_forecast_11_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(egarch_model_11_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      egarch_11_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      egarch_11std_var_series_95 <- c(egarch_11std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      egarch_11std_var_series_99 <- c(egarch_11std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for eGARCH(1,1) std", win_name, current_date_string))
+      egarch_11_std_1d <- dummy_forecast_evaluation()
+      egarch_11_std_10d <- dummy_forecast_evaluation()
+      egarch_11std_var_series_95 <- c(egarch_11std_var_series_95, NA)
+      egarch_11std_var_series_99 <- c(egarch_11std_var_series_99, NA)
+      
+      egarch_forecast_11_std_1d_series <- c(egarch_forecast_11_std_1d_series, NA)
+    }
+    
+    # Fit a eGARCH(2,1) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'eGARCH', garchOrder = c(2, 1)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    egarch_model_21_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for eGARCH(2,1) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    egarch_21_std_metrics <- calculate_garch_metrics(egarch_model_21_std, 3)
+    
+    if (!is.null(egarch_model_21_std) && egarch_model_21_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(egarch_model_21_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(egarch_model_21_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      egarch_21_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      egarch_forecast_21_std_1d_series <- c(egarch_forecast_21_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(egarch_model_21_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      egarch_21_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      egarch_21std_var_series_95 <- c(egarch_21std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      egarch_21std_var_series_99 <- c(egarch_21std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for GARCH(2,1) std", win_name, current_date_string))
+      egarch_21_std_1d <- dummy_forecast_evaluation()
+      egarch_21_std_10d <- dummy_forecast_evaluation()
+      egarch_21std_var_series_95 <- c(egarch_21std_var_series_95, NA)
+      egarch_21std_var_series_99 <- c(egarch_21std_var_series_99, NA)
+      
+      egarch_forecast_21_std_1d_series <- c(egarch_forecast_21_std_1d_series, NA)
+    }
+    
+    # Fit a eGARCH(1,2) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'eGARCH', garchOrder = c(1, 2)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    egarch_model_12_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for eGARCH(1,2) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    egarch_12_std_metrics <- calculate_garch_metrics(egarch_model_12_std, 2)
+    
+    if (!is.null(egarch_model_12_std) && egarch_model_12_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(egarch_model_12_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(egarch_model_12_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      egarch_12_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      egarch_forecast_12_std_1d_series <- c(egarch_forecast_12_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(egarch_model_12_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      egarch_12_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      egarch_12std_var_series_95 <- c(egarch_12std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      egarch_12std_var_series_99 <- c(egarch_12std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for eGARCH(1,2) std", win_name, current_date_string))
+      egarch_12_std_1d <- dummy_forecast_evaluation()
+      egarch_12_std_10d <- dummy_forecast_evaluation()
+      egarch_12std_var_series_95 <- c(egarch_12std_var_series_95, NA)
+      egarch_12std_var_series_99 <- c(egarch_12std_var_series_99, NA)
+      
+      egarch_forecast_12_std_1d_series <- c(egarch_forecast_12_std_1d_series, NA)
+    }
+    
+    # Fit a eGARCH(2,2) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'eGARCH', garchOrder = c(2, 2)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    egarch_model_22_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for eGARCH(2,2) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    egarch_22_std_metrics <- calculate_garch_metrics(egarch_model_22_std, 4)
+    
+    if (!is.null(egarch_model_22_std) && egarch_model_22_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(egarch_model_22_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(egarch_model_22_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      egarch_22_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      egarch_forecast_22_std_1d_series <- c(egarch_forecast_22_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(egarch_model_22_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      egarch_22_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      egarch_22std_var_series_95 <- c(egarch_22std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      egarch_22std_var_series_99 <- c(egarch_22std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for eGARCH(2,2) std", win_name, current_date_string))
+      egarch_22_std_1d <- dummy_forecast_evaluation()
+      egarch_22_std_10d <- dummy_forecast_evaluation()
+      egarch_22std_var_series_95 <- c(egarch_22std_var_series_95, NA)
+      egarch_22std_var_series_99 <- c(egarch_22std_var_series_99, NA)
+      
+      egarch_forecast_22_std_1d_series <- c(egarch_forecast_22_std_1d_series, NA)
+    }
+    
+    # Fit a tGARCH(1,1) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'fGARCH', submodel = 'TGARCH', garchOrder = c(1, 1)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    tgarch_model_11_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for tGARCH(1,1) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    tgarch_11_std_metrics <- calculate_garch_metrics(tgarch_model_11_std, 1)
+    
+    if (!is.null(tgarch_model_11_std) && tgarch_model_11_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(tgarch_model_11_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(tgarch_model_11_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      tgarch_11_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      tgarch_forecast_11_std_1d_series <- c(tgarch_forecast_11_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(tgarch_model_11_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      tgarch_11_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      tgarch_11std_var_series_95 <- c(tgarch_11std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      tgarch_11std_var_series_99 <- c(tgarch_11std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for tGARCH(1,1) std", win_name, current_date_string))
+      tgarch_11_std_1d <- dummy_forecast_evaluation()
+      tgarch_11_std_10d <- dummy_forecast_evaluation()
+      tgarch_11std_var_series_95 <- c(tgarch_11std_var_series_95, NA)
+      tgarch_11std_var_series_99 <- c(tgarch_11std_var_series_99, NA)
+      
+      tgarch_forecast_11_std_1d_series <- c(tgarch_forecast_11_std_1d_series, NA)
+    }
+    
+    # Fit a tGARCH(2,1) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'fGARCH', submodel = 'TGARCH', garchOrder = c(2, 1)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    tgarch_model_21_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for tGARCH(2,1) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    tgarch_21_std_metrics <- calculate_garch_metrics(tgarch_model_21_std, 3)
+    
+    if (!is.null(tgarch_model_21_std) && tgarch_model_21_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(tgarch_model_21_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(tgarch_model_21_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      tgarch_21_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      tgarch_forecast_21_std_1d_series <- c(tgarch_forecast_21_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(tgarch_model_21_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      tgarch_21_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      tgarch_21std_var_series_95 <- c(tgarch_21std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      tgarch_21std_var_series_99 <- c(tgarch_21std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for tGARCH(2,1) std", win_name, current_date_string))
+      tgarch_21_std_1d <- dummy_forecast_evaluation()
+      tgarch_21_std_10d <- dummy_forecast_evaluation()
+      tgarch_21std_var_series_95 <- c(tgarch_21std_var_series_95, NA)
+      tgarch_21std_var_series_99 <- c(tgarch_21std_var_series_99, NA)
+      
+      tgarch_forecast_21_std_1d_series <- c(tgarch_forecast_21_std_1d_series, NA)
+    }
+    
+    # Fit a tGARCH(1,2) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'fGARCH', submodel = 'TGARCH', garchOrder = c(1, 2)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    tgarch_model_12_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for tGARCH(1,2) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    tgarch_12_std_metrics <- calculate_garch_metrics(tgarch_model_12_std, 2)
+    
+    if (!is.null(tgarch_model_12_std) && tgarch_model_12_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(tgarch_model_12_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(tgarch_model_12_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      tgarch_12_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      tgarch_forecast_12_std_1d_series <- c(tgarch_forecast_12_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(tgarch_model_12_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      tgarch_12_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      tgarch_12std_var_series_95 <- c(tgarch_12std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      tgarch_12std_var_series_99 <- c(tgarch_12std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for tGARCH(1,2) std", win_name, current_date_string))
+      tgarch_12_std_1d <- dummy_forecast_evaluation()
+      tgarch_12_std_10d <- dummy_forecast_evaluation()
+      tgarch_12std_var_series_95 <- c(tgarch_12std_var_series_95, NA)
+      tgarch_12std_var_series_99 <- c(tgarch_12std_var_series_99, NA)
+      
+      tgarch_forecast_12_std_1d_series <- c(tgarch_forecast_12_std_1d_series, NA)
+    }
+    
+    # Fit a tGARCH(2,2) model
+    garch_spec <- ugarchspec(mean.model = list(armaOrder = c(arima_model$arma[1], arima_model$arma[2])),
+                             variance.model = list(model = 'fGARCH', submodel = 'TGARCH', garchOrder = c(2, 2)),
+                             distribution.model = "std")  # Use Student's t for fat tails
+    
+    # Fit the model
+    tgarch_model_22_std <- tryCatch({
+      ugarchfit(spec = garch_spec, data = training_data)
+    }, error = function(e) {
+      message(sprintf("Iteration %s %s failed for tGARCH(2,2) std: %s", win_name, current_date_string, e$message))
+      return(NULL)
+    })
+    
+    tgarch_22_std_metrics <- calculate_garch_metrics(tgarch_model_22_std, 4)
+    
+    if (!is.null(tgarch_model_22_std) && tgarch_model_22_std@fit$convergence == 0) {
+      
+      # Normality test using Shapiro-Wilk test
+      garch_residuals <- as.numeric(residuals(tgarch_model_22_std))
+      garch_n_test <- normality_tests(garch_residuals)
+      
+      garch_forecast_1d <- ugarchforecast(tgarch_model_22_std, n.ahead = 1)
+      garch_mean_forecast_1d <- as.numeric(garch_forecast_1d@forecast$seriesFor)
+      tgarch_22_std_1d <- forecast_evaluation(test_data_1d, garch_mean_forecast_1d)
+      tgarch_forecast_22_std_1d_series <- c(tgarch_forecast_22_std_1d_series, garch_mean_forecast_1d)
+      
+      garch_forecast_10d <- ugarchforecast(tgarch_model_22_std, n.ahead = 10)
+      garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
+      tgarch_22_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      
+      mu <- fitted(garch_forecast_1d)[1]
+      sigma <- sigma(garch_forecast_1d)[1]
+      garch_var <- mu + z_95 * sigma    # 95% confidence
+      tgarch_22std_var_series_95 <- c(tgarch_22std_var_series_95, garch_var)
+      
+      garch_var <- mu + z_99 * sigma    # 99% confidence
+      tgarch_22std_var_series_99 <- c(tgarch_22std_var_series_99, garch_var)
+    } else {
+      message(sprintf("Iteration %s %s: convergence failed for tGARCH(2,2) std", win_name, current_date_string))
+      tgarch_22_std_1d <- dummy_forecast_evaluation()
+      tgarch_22_std_10d <- dummy_forecast_evaluation()
+      tgarch_22std_var_series_95 <- c(tgarch_22std_var_series_95, NA)
+      tgarch_22std_var_series_99 <- c(tgarch_22std_var_series_99, NA)
+      
+      tgarch_forecast_22_std_1d_series <- c(tgarch_forecast_22_std_1d_series, NA)
+    }
+    
+    #### Historical VaR ######
     historical_var = quantile(training_data, probs = 0.05, na.rm = TRUE)  #95% confidence
-    vaR_series_95 <- c(vaR_series_95, historical_var)
+    his_var_series_95 <- c(his_var_series_95, historical_var)
     
     historical_var = quantile(training_data, probs = 0.01, na.rm = TRUE)  #99% confidence
-    vaR_series_99 <- c(vaR_series_99, historical_var)
+    his_var_series_99 <- c(his_var_series_99, historical_var)
     
     # Store results
     results[[length(results) + 1]] <- data.frame(
@@ -120,34 +743,518 @@ for (win_name in names(window_lengths)) {
       ARIMA_1d_MAPE = arima_1d$mape,
       ARIMA_10d_MAE = arima_10d$mae,
       ARIMA_10d_RMSE = arima_10d$rmse,
-      ARIMA_10d_MAPE = arima_10d$mape
+      ARIMA_10d_MAPE = arima_10d$mape,
+      ARCH_1_p = arch_test$arch_1_p,
+      ARCH_1_decision = arch_test$arch_1_decision,
+      ARCH_5_p = arch_test$arch_5_p,
+      ARCH_5_decision = arch_test$arch_5_decision,
+      ARCH_10_p = arch_test$arch_10_p,
+      ARCH_10_decision = arch_test$arch_10_decision,
+      
+      GARCH_11_STD_AIC = garch_11_std_metrics$aic,
+      GARCH_11_STD_BIC = garch_11_std_metrics$bic,
+      GARCH_11_STD_LIKE = garch_11_std_metrics$like,
+      GARCH_11_STD_PARA = garch_11_std_metrics$a_b,
+      GARCH_11_STD_1d_MAE = garch_11_std_1d$mae,
+      GARCH_11_STD_1d_RMSE = garch_11_std_1d$rmse,
+      GARCH_11_STD_1d_MAPE = garch_11_std_1d$mape,
+      GARCH_11_STD_10d_MAE = garch_11_std_10d$mae,
+      GARCH_11_STD_10d_RMSE = garch_11_std_10d$rmse,
+      GARCH_11_STD_10d_MAPE = garch_11_std_10d$mape,
+      
+      GARCH_21_STD_AIC = garch_21_std_metrics$aic,
+      GARCH_21_STD_BIC = garch_21_std_metrics$bic,
+      GARCH_21_STD_LIKE = garch_21_std_metrics$like,
+      GARCH_21_STD_PARA = garch_21_std_metrics$a_b,
+      GARCH_21_STD_1d_MAE = garch_21_std_1d$mae,
+      GARCH_21_STD_1d_RMSE = garch_21_std_1d$rmse,
+      GARCH_21_STD_1d_MAPE = garch_21_std_1d$mape,
+      GARCH_21_STD_10d_MAE = garch_21_std_10d$mae,
+      GARCH_21_STD_10d_RMSE = garch_21_std_10d$rmse,
+      GARCH_21_STD_10d_MAPE = garch_21_std_10d$mape,
+      
+      GARCH_12_STD_AIC = garch_12_std_metrics$aic,
+      GARCH_12_STD_BIC = garch_12_std_metrics$bic,
+      GARCH_12_STD_LIKE = garch_12_std_metrics$like,
+      GARCH_12_STD_PARA = garch_12_std_metrics$a_b,
+      GARCH_12_STD_1d_MAE = garch_12_std_1d$mae,
+      GARCH_12_STD_1d_RMSE = garch_12_std_1d$rmse,
+      GARCH_12_STD_1d_MAPE = garch_12_std_1d$mape,
+      GARCH_12_STD_10d_MAE = garch_12_std_10d$mae,
+      GARCH_12_STD_10d_RMSE = garch_12_std_10d$rmse,
+      GARCH_12_STD_10d_MAPE = garch_12_std_10d$mape,
+      
+      GARCH_22_STD_AIC = garch_22_std_metrics$aic,
+      GARCH_22_STD_BIC = garch_22_std_metrics$bic,
+      GARCH_22_STD_LIKE = garch_22_std_metrics$like,
+      GARCH_2_STD_PARA = garch_22_std_metrics$a_b,
+      GARCH_22_STD_1d_MAE = garch_22_std_1d$mae,
+      GARCH_22_STD_1d_RMSE = garch_22_std_1d$rmse,
+      GARCH_22_STD_1d_MAPE = garch_22_std_1d$mape,
+      GARCH_22_STD_10d_MAE = garch_22_std_10d$mae,
+      GARCH_22_STD_10d_RMSE = garch_22_std_10d$rmse,
+      GARCH_22_STD_10d_MAPE = garch_22_std_10d$mape,
+      
+      eGARCH_11_STD_AIC = egarch_11_std_metrics$aic,
+      eGARCH_11_STD_BIC = egarch_11_std_metrics$bic,
+      eGARCH_11_STD_LIKE = egarch_11_std_metrics$like,
+      eGARCH_11_STD_PARA = egarch_11_std_metrics$a_b,
+      eGARCH_11_STD_1d_MAE = egarch_11_std_1d$mae,
+      eGARCH_11_STD_1d_RMSE = egarch_11_std_1d$rmse,
+      eGARCH_11_STD_1d_MAPE = egarch_11_std_1d$mape,
+      eGARCH_11_STD_10d_MAE = egarch_11_std_10d$mae,
+      eGARCH_11_STD_10d_RMSE = egarch_11_std_10d$rmse,
+      eGARCH_11_STD_10d_MAPE = egarch_11_std_10d$mape,
+      
+      eGARCH_21_STD_AIC = egarch_21_std_metrics$aic,
+      eGARCH_21_STD_BIC = egarch_21_std_metrics$bic,
+      eGARCH_21_STD_LIKE = egarch_21_std_metrics$like,
+      eGARCH_21_STD_PARA = egarch_21_std_metrics$a_b,
+      eGARCH_21_STD_1d_MAE = egarch_21_std_1d$mae,
+      eGARCH_21_STD_1d_RMSE = egarch_21_std_1d$rmse,
+      eGARCH_21_STD_1d_MAPE = egarch_21_std_1d$mape,
+      eGARCH_21_STD_10d_MAE = egarch_21_std_10d$mae,
+      eGARCH_21_STD_10d_RMSE = egarch_21_std_10d$rmse,
+      eGARCH_21_STD_10d_MAPE = egarch_21_std_10d$mape,
+      
+      eGARCH_12_STD_AIC = egarch_12_std_metrics$aic,
+      eGARCH_12_STD_BIC = egarch_12_std_metrics$bic,
+      eGARCH_12_STD_LIKE = egarch_12_std_metrics$like,
+      eGARCH_12_STD_PARA = egarch_12_std_metrics$a_b,
+      eGARCH_12_STD_1d_MAE = egarch_12_std_1d$mae,
+      eGARCH_12_STD_1d_RMSE = egarch_12_std_1d$rmse,
+      eGARCH_12_STD_1d_MAPE = egarch_12_std_1d$mape,
+      eGARCH_12_STD_10d_MAE = egarch_12_std_10d$mae,
+      eGARCH_12_STD_10d_RMSE = egarch_12_std_10d$rmse,
+      eGARCH_12_STD_10d_MAPE = egarch_12_std_10d$mape,
+      
+      eGARCH_22_STD_AIC = egarch_22_std_metrics$aic,
+      eGARCH_22_STD_BIC = egarch_22_std_metrics$bic,
+      eGARCH_22_STD_LIKE = egarch_22_std_metrics$like,
+      eGARCH_22_STD_PARA = egarch_22_std_metrics$a_b,
+      eGARCH_22_STD_1d_MAE = egarch_22_std_1d$mae,
+      eGARCH_22_STD_1d_RMSE = egarch_22_std_1d$rmse,
+      eGARCH_22_STD_1d_MAPE = egarch_22_std_1d$mape,
+      eGARCH_22_STD_10d_MAE = egarch_22_std_10d$mae,
+      eGARCH_22_STD_10d_RMSE = egarch_22_std_10d$rmse,
+      eGARCH_22_STD_10d_MAPE = egarch_22_std_10d$mape,
+      
+      tGARCH_11_STD_AIC = tgarch_11_std_metrics$aic,
+      tGARCH_11_STD_BIC = tgarch_11_std_metrics$bic,
+      tGARCH_11_STD_LIKE = tgarch_11_std_metrics$like,
+      tGARCH_11_STD_PARA = tgarch_11_std_metrics$a_b,
+      tGARCH_11_STD_1d_MAE = tgarch_11_std_1d$mae,
+      tGARCH_11_STD_1d_RMSE = tgarch_11_std_1d$rmse,
+      tGARCH_11_STD_1d_MAPE = tgarch_11_std_1d$mape,
+      tGARCH_11_STD_10d_MAE = tgarch_11_std_10d$mae,
+      tGARCH_11_STD_10d_RMSE = tgarch_11_std_10d$rmse,
+      tGARCH_11_STD_10d_MAPE = tgarch_11_std_10d$mape,
+      
+      tGARCH_21_STD_AIC = tgarch_21_std_metrics$aic,
+      tGARCH_21_STD_BIC = tgarch_21_std_metrics$bic,
+      tGARCH_21_STD_LIKE = tgarch_21_std_metrics$like,
+      tGARCH_21_STD_PARA = tgarch_21_std_metrics$a_b,
+      tGARCH_21_STD_1d_MAE = tgarch_21_std_1d$mae,
+      tGARCH_21_STD_1d_RMSE = tgarch_21_std_1d$rmse,
+      tGARCH_21_STD_1d_MAPE = tgarch_21_std_1d$mape,
+      tGARCH_21_STD_10d_MAE = tgarch_21_std_10d$mae,
+      tGARCH_21_STD_10d_RMSE = tgarch_21_std_10d$rmse,
+      tGARCH_21_STD_10d_MAPE = tgarch_21_std_10d$mape,
+      
+      tGARCH_12_STD_AIC = tgarch_12_std_metrics$aic,
+      tGARCH_12_STD_BIC = tgarch_12_std_metrics$bic,
+      tGARCH_12_STD_LIKE = tgarch_12_std_metrics$like,
+      tGARCH_12_STD_PARA = tgarch_12_std_metrics$a_b,
+      tGARCH_12_STD_1d_MAE = tgarch_12_std_1d$mae,
+      tGARCH_12_STD_1d_RMSE = tgarch_12_std_1d$rmse,
+      tGARCH_12_STD_1d_MAPE = tgarch_12_std_1d$mape,
+      tGARCH_12_STD_10d_MAE = tgarch_12_std_10d$mae,
+      tGARCH_12_STD_10d_RMSE = tgarch_12_std_10d$rmse,
+      tGARCH_12_STD_10d_MAPE = tgarch_12_std_10d$mape,
+      
+      tGARCH_22_STD_AIC = tgarch_22_std_metrics$aic,
+      tGARCH_22_STD_BIC = tgarch_22_std_metrics$bic,
+      tGARCH_22_STD_LIKE = tgarch_22_std_metrics$like,
+      tGARCH_22_STD_PARA = tgarch_22_std_metrics$a_b,
+      tGARCH_22_STD_1d_MAE = tgarch_22_std_1d$mae,
+      tGARCH_22_STD_1d_RMSE = tgarch_22_std_1d$rmse,
+      tGARCH_22_STD_1d_MAPE = tgarch_22_std_1d$mape,
+      tGARCH_22_STD_10d_MAE = tgarch_22_std_10d$mae,
+      tGARCH_22_STD_10d_RMSE = tgarch_22_std_10d$rmse,
+      tGARCH_22_STD_10d_MAPE = tgarch_22_std_10d$mape
     )
   }
   
   # VaR Metrics
-  vaR_xts_95 <- xts(vaR_series_95, order.by = index(test_data_1d_all))
-  vaR_xts_99 <- xts(vaR_series_99, order.by = index(test_data_1d_all))
+  his_var_xts_95 <- xts(his_var_series_95, order.by = index(test_data_1d_all))
+  his_var_xts_99 <- xts(his_var_series_99, order.by = index(test_data_1d_all))
   
-  var_95_metrics <- VaRTest(0.05, test_data_1d_all, vaR_xts_95, 0.95)
-  var_99_metrics <- VaRTest(0.01, test_data_1d_all, vaR_xts_99, 0.99)
+  his_var_95_metrics <- VaRTest(0.05, test_data_1d_all, his_var_xts_95, 0.95)
+  his_var_99_metrics <- VaRTest(0.01, test_data_1d_all, his_var_xts_99, 0.99)
   
-  # Store the plots in folders
+  # GARCH
+  garch_var_xts_95 <- xts(garch_11std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_11std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(garch_11std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_11std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(garch_21std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_21std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(garch_21std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_21std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(garch_12std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_12std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(garch_12std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_12std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(garch_22std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_22std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(garch_22std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  garch_22std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  # eGARCH
+  garch_var_xts_95 <- xts(egarch_11std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_11std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(egarch_11std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_11std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(egarch_21std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_21std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(egarch_21std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_21std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(egarch_12std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_12std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(egarch_12std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_12std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(egarch_22std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_22std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(egarch_22std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  egarch_22std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  # tGARCH
+  garch_var_xts_95 <- xts(tgarch_11std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_11std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(tgarch_11std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_11std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(tgarch_21std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_21std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(tgarch_21std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_21std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(tgarch_12std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_12std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(tgarch_12std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_12std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  
+  
+  garch_var_xts_95 <- xts(tgarch_22std_var_series_95, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_95))
+  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_22std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  
+  garch_var_xts_99 <- xts(tgarch_22std_var_series_99, order.by = index(test_data_1d_all))
+  valid_idx <- which(!is.na(garch_var_xts_99))
+  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
+  test_data_1d_clean <- test_data_1d_all[valid_idx]
+  tgarch_22std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
   
   # Store Var Results
   var_results[[length(var_results) + 1]] <- data.frame(
     LookBackWin = win_name,
-    var_95_exp_violations = var_95_metrics$expected.exceed,
-    var_95_violations = var_95_metrics$actual.exceed,
-    var_95_kupic_p = var_95_metrics$uc.LRp,
-    var_95_kupic_decision = var_95_metrics$uc.Decision,
-    var_95_chris_p = var_95_metrics$cc.LRp,
-    var_95_chris_decision = var_95_metrics$cc.Decision,
-    var_99_exp_violations = var_99_metrics$expected.exceed,
-    var_99_violations = var_99_metrics$actual.exceed,
-    var_99_kupic_p = var_99_metrics$uc.LRp,
-    var_99_kupic_decision = var_99_metrics$uc.Decision,
-    var_99_chris_p = var_99_metrics$cc.LRp,
-    var_99_chris_decision = var_99_metrics$cc.Decision
+    var_95_exp_violations = his_var_95_metrics$expected.exceed,
+    var_95_violations = his_var_95_metrics$actual.exceed,
+    var_95_kupic_p = his_var_95_metrics$uc.LRp,
+    var_95_kupic_decision = his_var_95_metrics$uc.Decision,
+    var_95_chris_p = his_var_95_metrics$cc.LRp,
+    var_95_chris_decision = his_var_95_metrics$cc.Decision,
+    var_99_exp_violations = his_var_99_metrics$expected.exceed,
+    var_99_violations = his_var_99_metrics$actual.exceed,
+    var_99_kupic_p = his_var_99_metrics$uc.LRp,
+    var_99_kupic_decision = his_var_99_metrics$uc.Decision,
+    var_99_chris_p = his_var_99_metrics$cc.LRp,
+    var_99_chris_decision = his_var_99_metrics$cc.Decision,
+    
+    garch_11std_95_failures = sum(is.na(garch_11std_var_series_95)),
+    garch_11std_99_failures = sum(is.na(garch_11std_var_series_99)),
+    
+    garch_11std_95_exp_violations = garch_11std_var_95_metrics$expected.exceed,
+    garch_11std_95_violations = garch_11std_var_95_metrics$actual.exceed,
+    garch_11std_95_kupic_p = garch_11std_var_95_metrics$uc.LRp,
+    garch_11std_95_kupic_decision = garch_11std_var_95_metrics$uc.Decision,
+    garch_11std_95_chris_p = garch_11std_var_95_metrics$cc.LRp,
+    garch_11std_95_chris_decision = garch_11std_var_95_metrics$cc.Decision,
+    garch_11std_99_exp_violations = garch_11std_var_99_metrics$expected.exceed,
+    garch_11std_99_violations = garch_11std_var_99_metrics$actual.exceed,
+    garch_11std_99_kupic_p = garch_11std_var_99_metrics$uc.LRp,
+    garch_11std_99_kupic_decision = garch_11std_var_99_metrics$uc.Decision,
+    garch_11std_99_chris_p = garch_11std_var_99_metrics$cc.LRp,
+    garch_11std_99_chris_decision = garch_11std_var_99_metrics$cc.Decision,
+    
+    garch_21std_95_failures = sum(is.na(garch_21std_var_series_95)),
+    garch_21std_99_failures = sum(is.na(garch_21std_var_series_99)),
+    
+    garch_21std_95_exp_violations = garch_21std_var_95_metrics$expected.exceed,
+    garch_21std_95_violations = garch_21std_var_95_metrics$actual.exceed,
+    garch_21std_95_kupic_p = garch_21std_var_95_metrics$uc.LRp,
+    garch_21std_95_kupic_decision = garch_21std_var_95_metrics$uc.Decision,
+    garch_21std_95_chris_p = garch_21std_var_95_metrics$cc.LRp,
+    garch_21std_95_chris_decision = garch_21std_var_95_metrics$cc.Decision,
+    garch_21std_99_exp_violations = garch_21std_var_99_metrics$expected.exceed,
+    garch_21std_99_violations = garch_21std_var_99_metrics$actual.exceed,
+    garch_21std_99_kupic_p = garch_21std_var_99_metrics$uc.LRp,
+    garch_21std_99_kupic_decision = garch_21std_var_99_metrics$uc.Decision,
+    garch_21std_99_chris_p = garch_21std_var_99_metrics$cc.LRp,
+    garch_21std_99_chris_decision = garch_21std_var_99_metrics$cc.Decision,
+    
+    garch_12std_95_failures = sum(is.na(garch_12std_var_series_95)),
+    garch_12std_99_failures = sum(is.na(garch_12std_var_series_99)),
+    
+    garch_12std_95_exp_violations = garch_12std_var_95_metrics$expected.exceed,
+    garch_12std_95_violations = garch_12std_var_95_metrics$actual.exceed,
+    garch_12std_95_kupic_p = garch_12std_var_95_metrics$uc.LRp,
+    garch_12std_95_kupic_decision = garch_12std_var_95_metrics$uc.Decision,
+    garch_12std_95_chris_p = garch_12std_var_95_metrics$cc.LRp,
+    garch_12std_95_chris_decision = garch_12std_var_95_metrics$cc.Decision,
+    garch_12std_99_exp_violations = garch_12std_var_99_metrics$expected.exceed,
+    garch_12std_99_violations = garch_12std_var_99_metrics$actual.exceed,
+    garch_12std_99_kupic_p = garch_12std_var_99_metrics$uc.LRp,
+    garch_12std_99_kupic_decision = garch_12std_var_99_metrics$uc.Decision,
+    garch_12std_99_chris_p = garch_12std_var_99_metrics$cc.LRp,
+    garch_12std_99_chris_decision = garch_12std_var_99_metrics$cc.Decision,
+    
+    garch_22std_95_failures = sum(is.na(garch_22std_var_series_95)),
+    garch_22std_99_failures = sum(is.na(garch_22std_var_series_99)),
+    
+    garch_22std_95_exp_violations = garch_22std_var_95_metrics$expected.exceed,
+    garch_22std_95_violations = garch_22std_var_95_metrics$actual.exceed,
+    garch_22std_95_kupic_p = garch_22std_var_95_metrics$uc.LRp,
+    garch_22std_95_kupic_decision = garch_22std_var_95_metrics$uc.Decision,
+    garch_22std_95_chris_p = garch_22std_var_95_metrics$cc.LRp,
+    garch_22std_95_chris_decision = garch_22std_var_95_metrics$cc.Decision,
+    garch_22std_99_exp_violations = garch_22std_var_99_metrics$expected.exceed,
+    garch_22std_99_violations = garch_22std_var_99_metrics$actual.exceed,
+    garch_22std_99_kupic_p = garch_22std_var_99_metrics$uc.LRp,
+    garch_22std_99_kupic_decision = garch_22std_var_99_metrics$uc.Decision,
+    garch_22std_99_chris_p = garch_22std_var_99_metrics$cc.LRp,
+    garch_22std_99_chris_decision = garch_22std_var_99_metrics$cc.Decision,
+    
+    egarch_11std_95_failures = sum(is.na(egarch_11std_var_series_95)),
+    egarch_11std_99_failures = sum(is.na(egarch_11std_var_series_99)),
+    
+    egarch_11std_95_exp_violations = egarch_11std_var_95_metrics$expected.exceed,
+    egarch_11std_95_violations = egarch_11std_var_95_metrics$actual.exceed,
+    egarch_11std_95_kupic_p = egarch_11std_var_95_metrics$uc.LRp,
+    egarch_11std_95_kupic_decision = egarch_11std_var_95_metrics$uc.Decision,
+    egarch_11std_95_chris_p = egarch_11std_var_95_metrics$cc.LRp,
+    egarch_11std_95_chris_decision = egarch_11std_var_95_metrics$cc.Decision,
+    egarch_11std_99_exp_violations = egarch_11std_var_99_metrics$expected.exceed,
+    egarch_11std_99_violations = egarch_11std_var_99_metrics$actual.exceed,
+    egarch_11std_99_kupic_p = egarch_11std_var_99_metrics$uc.LRp,
+    egarch_11std_99_kupic_decision = egarch_11std_var_99_metrics$uc.Decision,
+    egarch_11std_99_chris_p = egarch_11std_var_99_metrics$cc.LRp,
+    egarch_11std_99_chris_decision = egarch_11std_var_99_metrics$cc.Decision,
+    
+    egarch_21std_95_failures = sum(is.na(egarch_21std_var_series_95)),
+    egarch_21std_99_failures = sum(is.na(egarch_21std_var_series_99)),
+    
+    egarch_21std_95_exp_violations = egarch_21std_var_95_metrics$expected.exceed,
+    egarch_21std_95_violations = egarch_21std_var_95_metrics$actual.exceed,
+    egarch_21std_95_kupic_p = egarch_21std_var_95_metrics$uc.LRp,
+    egarch_21std_95_kupic_decision = egarch_21std_var_95_metrics$uc.Decision,
+    egarch_21std_95_chris_p = egarch_21std_var_95_metrics$cc.LRp,
+    egarch_21std_95_chris_decision = egarch_21std_var_95_metrics$cc.Decision,
+    egarch_21std_99_exp_violations = egarch_21std_var_99_metrics$expected.exceed,
+    egarch_21std_99_violations = egarch_21std_var_99_metrics$actual.exceed,
+    egarch_21std_99_kupic_p = egarch_21std_var_99_metrics$uc.LRp,
+    egarch_21std_99_kupic_decision = egarch_21std_var_99_metrics$uc.Decision,
+    egarch_21std_99_chris_p = egarch_21std_var_99_metrics$cc.LRp,
+    egarch_21std_99_chris_decision = egarch_21std_var_99_metrics$cc.Decision,
+    
+    egarch_12std_95_failures = sum(is.na(egarch_12std_var_series_95)),
+    egarch_12std_99_failures = sum(is.na(egarch_12std_var_series_99)),
+    
+    egarch_12std_95_exp_violations = egarch_12std_var_95_metrics$expected.exceed,
+    egarch_12std_95_violations = egarch_12std_var_95_metrics$actual.exceed,
+    egarch_12std_95_kupic_p = egarch_12std_var_95_metrics$uc.LRp,
+    egarch_12std_95_kupic_decision = egarch_12std_var_95_metrics$uc.Decision,
+    egarch_12std_95_chris_p = egarch_12std_var_95_metrics$cc.LRp,
+    egarch_12std_95_chris_decision = egarch_12std_var_95_metrics$cc.Decision,
+    egarch_12std_99_exp_violations = egarch_12std_var_99_metrics$expected.exceed,
+    egarch_12std_99_violations = egarch_12std_var_99_metrics$actual.exceed,
+    egarch_12std_99_kupic_p = egarch_12std_var_99_metrics$uc.LRp,
+    egarch_12std_99_kupic_decision = egarch_12std_var_99_metrics$uc.Decision,
+    egarch_12std_99_chris_p = egarch_12std_var_99_metrics$cc.LRp,
+    egarch_12std_99_chris_decision = egarch_12std_var_99_metrics$cc.Decision,
+    
+    egarch_22std_95_failures = sum(is.na(egarch_22std_var_series_95)),
+    egarch_22std_99_failures = sum(is.na(egarch_22std_var_series_99)),
+    
+    egarch_22std_95_exp_violations = egarch_22std_var_95_metrics$expected.exceed,
+    egarch_22std_95_violations = egarch_22std_var_95_metrics$actual.exceed,
+    egarch_22std_95_kupic_p = egarch_22std_var_95_metrics$uc.LRp,
+    egarch_22std_95_kupic_decision = egarch_22std_var_95_metrics$uc.Decision,
+    egarch_22std_95_chris_p = egarch_22std_var_95_metrics$cc.LRp,
+    egarch_22std_95_chris_decision = egarch_22std_var_95_metrics$cc.Decision,
+    egarch_22std_99_exp_violations = egarch_22std_var_99_metrics$expected.exceed,
+    egarch_22std_99_violations = egarch_22std_var_99_metrics$actual.exceed,
+    egarch_22std_99_kupic_p = egarch_22std_var_99_metrics$uc.LRp,
+    egarch_22std_99_kupic_decision = egarch_22std_var_99_metrics$uc.Decision,
+    egarch_22std_99_chris_p = egarch_22std_var_99_metrics$cc.LRp,
+    egarch_22std_99_chris_decision = egarch_22std_var_99_metrics$cc.Decision,
+    
+    tgarch_11std_95_failures = sum(is.na(tgarch_11std_var_series_95)),
+    tgarch_11std_99_failures = sum(is.na(tgarch_11std_var_series_99)),
+    
+    tgarch_11std_95_exp_violations = tgarch_11std_var_95_metrics$expected.exceed,
+    tgarch_11std_95_violations = tgarch_11std_var_95_metrics$actual.exceed,
+    tgarch_11std_95_kupic_p = tgarch_11std_var_95_metrics$uc.LRp,
+    tgarch_11std_95_kupic_decision = tgarch_11std_var_95_metrics$uc.Decision,
+    tgarch_11std_95_chris_p = tgarch_11std_var_95_metrics$cc.LRp,
+    tgarch_11std_95_chris_decision = tgarch_11std_var_95_metrics$cc.Decision,
+    tgarch_11std_99_exp_violations = tgarch_11std_var_99_metrics$expected.exceed,
+    tgarch_11std_99_violations = tgarch_11std_var_99_metrics$actual.exceed,
+    tgarch_11std_99_kupic_p = tgarch_11std_var_99_metrics$uc.LRp,
+    tgarch_11std_99_kupic_decision = tgarch_11std_var_99_metrics$uc.Decision,
+    tgarch_11std_99_chris_p = tgarch_11std_var_99_metrics$cc.LRp,
+    tgarch_11std_99_chris_decision = tgarch_11std_var_99_metrics$cc.Decision,
+    
+    tgarch_21std_95_failures = sum(is.na(tgarch_21std_var_series_95)),
+    tgarch_21std_99_failures = sum(is.na(tgarch_21std_var_series_99)),
+    
+    tgarch_21std_95_exp_violations = tgarch_21std_var_95_metrics$expected.exceed,
+    tgarch_21std_95_violations = tgarch_21std_var_95_metrics$actual.exceed,
+    tgarch_21std_95_kupic_p = tgarch_21std_var_95_metrics$uc.LRp,
+    tgarch_21std_95_kupic_decision = tgarch_21std_var_95_metrics$uc.Decision,
+    tgarch_21std_95_chris_p = tgarch_21std_var_95_metrics$cc.LRp,
+    tgarch_21std_95_chris_decision = tgarch_21std_var_95_metrics$cc.Decision,
+    tgarch_21std_99_exp_violations = tgarch_21std_var_99_metrics$expected.exceed,
+    tgarch_21std_99_violations = tgarch_21std_var_99_metrics$actual.exceed,
+    tgarch_21std_99_kupic_p = tgarch_21std_var_99_metrics$uc.LRp,
+    tgarch_21std_99_kupic_decision = tgarch_21std_var_99_metrics$uc.Decision,
+    tgarch_21std_99_chris_p = tgarch_21std_var_99_metrics$cc.LRp,
+    tgarch_21std_99_chris_decision = tgarch_21std_var_99_metrics$cc.Decision,
+    
+    tgarch_12std_95_failures = sum(is.na(tgarch_12std_var_series_95)),
+    tgarch_12std_99_failures = sum(is.na(tgarch_12std_var_series_99)),
+    
+    tgarch_12std_95_exp_violations = tgarch_12std_var_95_metrics$expected.exceed,
+    tgarch_12std_95_violations = tgarch_12std_var_95_metrics$actual.exceed,
+    tgarch_12std_95_kupic_p = tgarch_12std_var_95_metrics$uc.LRp,
+    tgarch_12std_95_kupic_decision = tgarch_12std_var_95_metrics$uc.Decision,
+    tgarch_12std_95_chris_p = tgarch_12std_var_95_metrics$cc.LRp,
+    tgarch_12std_95_chris_decision = tgarch_12std_var_95_metrics$cc.Decision,
+    tgarch_12std_99_exp_violations = tgarch_12std_var_99_metrics$expected.exceed,
+    tgarch_12std_99_violations = tgarch_12std_var_99_metrics$actual.exceed,
+    tgarch_12std_99_kupic_p = tgarch_12std_var_99_metrics$uc.LRp,
+    tgarch_12std_99_kupic_decision = tgarch_12std_var_99_metrics$uc.Decision,
+    tgarch_12std_99_chris_p = tgarch_12std_var_99_metrics$cc.LRp,
+    tgarch_12std_99_chris_decision = tgarch_12std_var_99_metrics$cc.Decision,
+    
+    tgarch_22std_95_failures = sum(is.na(tgarch_22std_var_series_95)),
+    tgarch_22std_99_failures = sum(is.na(tgarch_22std_var_series_99)),
+    
+    tgarch_22std_95_exp_violations = tgarch_22std_var_95_metrics$expected.exceed,
+    tgarch_22std_95_violations = tgarch_22std_var_95_metrics$actual.exceed,
+    tgarch_22std_95_kupic_p = tgarch_22std_var_95_metrics$uc.LRp,
+    tgarch_22std_95_kupic_decision = tgarch_22std_var_95_metrics$uc.Decision,
+    tgarch_22std_95_chris_p = tgarch_22std_var_95_metrics$cc.LRp,
+    tgarch_22std_95_chris_decision = tgarch_22std_var_95_metrics$cc.Decision,
+    tgarch_22std_99_exp_violations = tgarch_22std_var_99_metrics$expected.exceed,
+    tgarch_22std_99_violations = tgarch_22std_var_99_metrics$actual.exceed,
+    tgarch_22std_99_kupic_p = tgarch_22std_var_99_metrics$uc.LRp,
+    tgarch_22std_99_kupic_decision = tgarch_22std_var_99_metrics$uc.Decision,
+    tgarch_22std_99_chris_p = tgarch_22std_var_99_metrics$cc.LRp,
+    tgarch_22std_99_chris_decision = tgarch_22std_var_99_metrics$cc.Decision
   )
 }
 
@@ -156,5 +1263,5 @@ final_results <- do.call(rbind, results)
 final_var_results <- do.call(rbind, var_results)
 
 # Save results to CSV
-write.csv(final_results, "results_20250715.csv", row.names = FALSE)
-write.csv(final_var_results, "var_results_20250715.csv", row.names = FALSE)
+write.csv(final_results, "results_20250727.csv", row.names = FALSE)
+write.csv(final_var_results, "var_results_20250727.csv", row.names = FALSE)
