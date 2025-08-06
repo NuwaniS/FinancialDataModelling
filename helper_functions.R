@@ -21,6 +21,8 @@ library(xts)
 # 8. forecast evaluation
 # 9. Zoomed in histogram
 # 10. calculate_garch_metrics
+# 11. garch_var_test
+# 12. mean_quantile_loss
 
 # Define a function for the plots
 plot_time_series_data <- function(model_data, model_name) {
@@ -309,9 +311,34 @@ arch_lm_test <- function(residuals) {
 
 forecast_evaluation <- function(actual_values, forecast_values) {
   
-  return(list(mae = mae(actual_values, forecast_values), 
-              rmse = rmse(actual_values, forecast_values), 
-              mape = mape(actual_values, forecast_values)))
+  mask <- complete.cases(actual_values, forecast_values)
+  
+  return(list(mae = mae(actual_values[mask], forecast_values[mask]), 
+              rmse = rmse(actual_values[mask], forecast_values[mask]), 
+              mape = mape(actual_values[mask], forecast_values[mask])))
+}
+
+forecast_evaluation_10d <- function(actual_values, forecast_values) {
+  # actual_values and forecast_values are 2D lists
+  
+  # Remove rows with any NA (in either matrix)
+  complete_rows <- !sapply(forecast_values, function(x) is.null(x) || all(is.na(x))) &
+    !sapply(actual_values, function(x) is.null(x) || all(is.na(x)))
+  
+  # Subset matrices
+  forecast_matrix_clean <- forecast_values[complete_rows]
+  actual_matrix_clean   <- actual_values[complete_rows]
+  
+  forecast_matrix <- do.call(rbind, forecast_matrix_clean)
+  actual_matrix   <- do.call(rbind, actual_matrix_clean)
+  
+  # Then flatten
+  forecast_vec <- as.vector(forecast_matrix)
+  actual_vec   <- as.vector(actual_matrix)
+  
+  return(list(mae = mae(actual_vec, forecast_vec), 
+              rmse = rmse(actual_vec, forecast_vec), 
+              mape = mape(actual_vec, forecast_vec)))
 }
 
 dummy_forecast_evaluation <- function() {
@@ -363,4 +390,21 @@ calculate_garch_metrics <- function(garch_model, order) {
     a_b <- NA
   }
   return(list(aic = aic, bic = bic, like = like, a_b = a_b))
+}
+
+garch_var_test <- function(calculated_var_series, test_data, confidence = 0.95) {
+  garch_var_xts <- xts(calculated_var_series, order.by = index(test_data))
+  valid_idx <- which(!is.na(garch_var_xts))
+  garch_var_xts_clean <- garch_var_xts[valid_idx]
+  test_data_clean <- test_data[valid_idx]
+  metric_values <- VaRTest(1-confidence, test_data_clean, garch_var_xts_clean, confidence)
+  return (metric_values)
+}
+
+mean_quantile_loss <- function(calculated_var_series, test_data, alpha = 0.05) {
+  mask <- complete.cases(test_data, calculated_var_series)
+  
+  error <- test_data[mask] - calculated_var_series[mask]
+  loss <- ifelse(test_data[mask] < calculated_var_series[mask], (1 - alpha) * abs(error), alpha * abs(error))
+  return(mean(loss))
 }

@@ -8,8 +8,8 @@ if (!dir.exists(plot_dir)) {
   dir.create(plot_dir, recursive = TRUE)
 }
 
-# Full, 
-win_tag = '2 Year'
+# Change the window name after running the script financial_model_2.R - 3 Months, 6 Months, 1 Year, 2 Year, Full, 
+win_tag = 'Full'
 
 # Store the plots in the folder
 removeNA <- function(test_data, garch_var) {

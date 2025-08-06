@@ -29,18 +29,15 @@ var_results <- list()
 # Define look-back window lengths in trading days
 window_lengths <- list(
 # '3_months' = 63,     # 21 trading days/month × 3
-#  '6_months' = 126,
-#  '1_year'   = 250,
+#  '6_months' = 126
+#  '1_year'   = 250
   '2_year'   = 500
 #  'full'     = NA      # All available data up to the selected date
 )
 
 # GARCH parameters
 alpha_95 <- 0.05            # for 95% confidence
-z_95 <- qnorm(alpha_95)        # quantile for normal distribution
-
 alpha_99 <- 0.01            # for 99% confidence
-z_99 <- qnorm(alpha_99)        # quantile for normal distribution
 
 # Set date range for VaR estimation
 forward_start_date <- as.Date("2025-01-02")
@@ -52,6 +49,10 @@ test_data_1d_all <- log_returns[test_dates]
 # Consider the windows for the first loop since it is more favourable for Var Calculations
 for (win_name in names(window_lengths)) {
   window_len <- window_lengths[[win_name]]
+  
+  test_data_cum_10d_all <- numeric(0)
+  test_data_10d_list <- list()
+    
   # Series to store 1d VaR values
   his_var_series_95 <- numeric(0)
   his_var_series_99 <- numeric(0)
@@ -71,6 +72,22 @@ for (win_name in names(window_lengths)) {
   tgarch_forecast_12_std_1d_series <- numeric(0)
   tgarch_forecast_21_std_1d_series <- numeric(0)
   tgarch_forecast_22_std_1d_series <- numeric(0)
+  
+  arima_forecast_10d_list <- list()
+  garch_forecast_11_std_10d_list <- list()
+  garch_forecast_12_std_10d_list <- list()
+  garch_forecast_21_std_10d_list <- list()
+  garch_forecast_22_std_10d_list <- list()
+  
+  egarch_forecast_11_std_10d_list <- list()
+  egarch_forecast_12_std_10d_list <- list()
+  egarch_forecast_21_std_10d_list <- list()
+  egarch_forecast_22_std_10d_list <- list()
+  
+  tgarch_forecast_11_std_10d_list <- list()
+  tgarch_forecast_12_std_10d_list <- list()
+  tgarch_forecast_21_std_10d_list <- list()
+  tgarch_forecast_22_std_10d_list <- list()
   
   garch_11std_var_series_95 <- numeric(0)
   garch_11std_var_series_99 <- numeric(0)
@@ -99,12 +116,41 @@ for (win_name in names(window_lengths)) {
   tgarch_22std_var_series_95 <- numeric(0)
   tgarch_22std_var_series_99 <- numeric(0)
   
+  garch_11std_10d_var_series_95 <- numeric(0)
+  garch_11std_10d_var_series_99 <- numeric(0)
+  garch_21std_10d_var_series_95 <- numeric(0)
+  garch_21std_10d_var_series_99 <- numeric(0)
+  garch_12std_10d_var_series_95 <- numeric(0)
+  garch_12std_10d_var_series_99 <- numeric(0)
+  garch_22std_10d_var_series_95 <- numeric(0)
+  garch_22std_10d_var_series_99 <- numeric(0)
+  
+  egarch_11std_10d_var_series_95 <- numeric(0)
+  egarch_11std_10d_var_series_99 <- numeric(0)
+  egarch_21std_10d_var_series_95 <- numeric(0)
+  egarch_21std_10d_var_series_99 <- numeric(0)
+  egarch_12std_10d_var_series_95 <- numeric(0)
+  egarch_12std_10d_var_series_99 <- numeric(0)
+  egarch_22std_10d_var_series_95 <- numeric(0)
+  egarch_22std_10d_var_series_99 <- numeric(0)
+  
+  tgarch_11std_10d_var_series_95 <- numeric(0)
+  tgarch_11std_10d_var_series_99 <- numeric(0)
+  tgarch_21std_10d_var_series_95 <- numeric(0)
+  tgarch_21std_10d_var_series_99 <- numeric(0)
+  tgarch_12std_10d_var_series_95 <- numeric(0)
+  tgarch_12std_10d_var_series_99 <- numeric(0)
+  tgarch_22std_10d_var_series_95 <- numeric(0)
+  tgarch_22std_10d_var_series_99 <- numeric(0)
+  
   for (current_date in test_dates) {
     current_date_string <- index(log_returns[index(log_returns) == current_date])
     
     test_data_1d <- log_returns[index(log_returns) == current_date]
     test_data_10d <- log_returns[index(log_returns) >= current_date]
     test_data_10d <- head(test_data_10d, 10)
+    test_data_cum_10d_all <- c(test_data_cum_10d_all, sum(test_data_10d))
+    test_data_10d_list[[length(test_data_10d_list) + 1]] <- test_data_10d
     
     # Subset the look-back window
     if (is.na(window_len)) {
@@ -138,6 +184,7 @@ for (win_name in names(window_lengths)) {
     
     arima_forecast_10d <- forecast(arima_model, h = 10)
     arima_10d <- forecast_evaluation(test_data_10d, arima_forecast_10d$mean)
+    arima_forecast_10d_list[[length(arima_forecast_10d_list) + 1]] <- arima_forecast_10d$mean
     
     #### GARCH ######
     arch_test <- arch_lm_test(residuals)
@@ -172,22 +219,48 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(garch_model_11_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       garch_11_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      garch_forecast_11_std_10d_list[[length(garch_forecast_11_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       garch_11std_var_series_95 <- c(garch_11std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       garch_11std_var_series_99 <- c(garch_11std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      garch_11std_10d_var_series_95 <- c(garch_11std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      garch_11std_10d_var_series_99 <- c(garch_11std_10d_var_series_99, var_10d)
+      
     } else {
       message(sprintf("Iteration %s %s: convergence failed for GARCH(1,1) std", win_name, current_date_string))
       garch_11_std_1d <- dummy_forecast_evaluation()
       garch_11_std_10d <- dummy_forecast_evaluation()
       garch_11std_var_series_95 <- c(garch_11std_var_series_95, NA)
       garch_11std_var_series_99 <- c(garch_11std_var_series_99, NA)
+      garch_11std_10d_var_series_95 <- c(garch_11std_10d_var_series_95, NA)
+      garch_11std_10d_var_series_99 <- c(garch_11std_10d_var_series_99, NA)
       
       garch_forecast_11_std_1d_series <- c(garch_forecast_11_std_1d_series, NA)
+      garch_forecast_11_std_10d_list[[length(garch_forecast_11_std_10d_list) + 1]] <- NA
     }
     
     # Fit a GARCH(2,1) model
@@ -219,22 +292,47 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(garch_model_21_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       garch_21_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      garch_forecast_21_std_10d_list[[length(garch_forecast_21_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       garch_21std_var_series_95 <- c(garch_21std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       garch_21std_var_series_99 <- c(garch_21std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      garch_21std_10d_var_series_95 <- c(garch_21std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      garch_21std_10d_var_series_99 <- c(garch_21std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for GARCH(2,1) std", win_name, current_date_string))
       garch_21_std_1d <- dummy_forecast_evaluation()
       garch_21_std_10d <- dummy_forecast_evaluation()
       garch_21std_var_series_95 <- c(garch_21std_var_series_95, NA)
       garch_21std_var_series_99 <- c(garch_21std_var_series_99, NA)
+      garch_21std_10d_var_series_95 <- c(garch_21std_10d_var_series_95, NA)
+      garch_21std_10d_var_series_99 <- c(garch_21std_10d_var_series_99, NA)
       
       garch_forecast_21_std_1d_series <- c(garch_forecast_21_std_1d_series, NA)
+      garch_forecast_21_std_10d_list[[length(garch_forecast_21_std_10d_list) + 1]] <- NA
+      
     }
     
     # Fit a GARCH(1,2) model
@@ -266,22 +364,47 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(garch_model_12_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       garch_12_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      garch_forecast_12_std_10d_list[[length(garch_forecast_12_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       garch_12std_var_series_95 <- c(garch_12std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       garch_12std_var_series_99 <- c(garch_12std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      garch_12std_10d_var_series_95 <- c(garch_12std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      garch_12std_10d_var_series_99 <- c(garch_12std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for GARCH(1,2) std", win_name, current_date_string))
       garch_12_std_1d <- dummy_forecast_evaluation()
       garch_12_std_10d <- dummy_forecast_evaluation()
       garch_12std_var_series_95 <- c(garch_12std_var_series_95, NA)
       garch_12std_var_series_99 <- c(garch_12std_var_series_99, NA)
+      garch_12std_10d_var_series_95 <- c(garch_12std_10d_var_series_95, NA)
+      garch_12std_10d_var_series_99 <- c(garch_12std_10d_var_series_99, NA)
       
       garch_forecast_12_std_1d_series <- c(garch_forecast_12_std_1d_series, NA)
+      garch_forecast_12_std_10d_list[[length(garch_forecast_12_std_10d_list) + 1]] <- NA
+      
     }
     
     # Fit a GARCH(2,2) model
@@ -313,22 +436,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(garch_model_22_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       garch_22_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      garch_forecast_22_std_10d_list[[length(garch_forecast_22_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       garch_22std_var_series_95 <- c(garch_22std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       garch_22std_var_series_99 <- c(garch_22std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      garch_22std_10d_var_series_95 <- c(garch_22std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      garch_22std_10d_var_series_99 <- c(garch_22std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for GARCH(2,2) std", win_name, current_date_string))
       garch_22_std_1d <- dummy_forecast_evaluation()
       garch_22_std_10d <- dummy_forecast_evaluation()
       garch_22std_var_series_95 <- c(garch_22std_var_series_95, NA)
       garch_22std_var_series_99 <- c(garch_22std_var_series_99, NA)
+      garch_22std_10d_var_series_95 <- c(garch_22std_10d_var_series_95, NA)
+      garch_22std_10d_var_series_99 <- c(garch_22std_10d_var_series_99, NA)
       
       garch_forecast_22_std_1d_series <- c(garch_forecast_22_std_1d_series, NA)
+      garch_forecast_22_std_10d_list[[length(garch_forecast_22_std_10d_list) + 1]] <- NA
     }
     
     ## eGARCH with student T distribution ##
@@ -361,22 +508,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(egarch_model_11_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       egarch_11_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      egarch_forecast_11_std_10d_list[[length(egarch_forecast_11_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       egarch_11std_var_series_95 <- c(egarch_11std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       egarch_11std_var_series_99 <- c(egarch_11std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      egarch_11std_10d_var_series_95 <- c(egarch_11std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      egarch_11std_10d_var_series_99 <- c(egarch_11std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for eGARCH(1,1) std", win_name, current_date_string))
       egarch_11_std_1d <- dummy_forecast_evaluation()
       egarch_11_std_10d <- dummy_forecast_evaluation()
       egarch_11std_var_series_95 <- c(egarch_11std_var_series_95, NA)
       egarch_11std_var_series_99 <- c(egarch_11std_var_series_99, NA)
+      egarch_11std_10d_var_series_95 <- c(egarch_11std_10d_var_series_95, NA)
+      egarch_11std_10d_var_series_99 <- c(egarch_11std_10d_var_series_99, NA)
       
       egarch_forecast_11_std_1d_series <- c(egarch_forecast_11_std_1d_series, NA)
+      egarch_forecast_11_std_10d_list[[length(egarch_forecast_11_std_10d_list) + 1]] <- NA
     }
     
     # Fit a eGARCH(2,1) model
@@ -408,22 +579,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(egarch_model_21_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       egarch_21_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      egarch_forecast_21_std_10d_list[[length(egarch_forecast_21_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       egarch_21std_var_series_95 <- c(egarch_21std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       egarch_21std_var_series_99 <- c(egarch_21std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      egarch_21std_10d_var_series_95 <- c(egarch_21std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      egarch_21std_10d_var_series_99 <- c(egarch_21std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for GARCH(2,1) std", win_name, current_date_string))
       egarch_21_std_1d <- dummy_forecast_evaluation()
       egarch_21_std_10d <- dummy_forecast_evaluation()
       egarch_21std_var_series_95 <- c(egarch_21std_var_series_95, NA)
       egarch_21std_var_series_99 <- c(egarch_21std_var_series_99, NA)
+      egarch_21std_10d_var_series_95 <- c(egarch_21std_10d_var_series_95, NA)
+      egarch_21std_10d_var_series_99 <- c(egarch_21std_10d_var_series_99, NA)
       
       egarch_forecast_21_std_1d_series <- c(egarch_forecast_21_std_1d_series, NA)
+      egarch_forecast_21_std_10d_list[[length(egarch_forecast_21_std_10d_list) + 1]] <- NA
     }
     
     # Fit a eGARCH(1,2) model
@@ -455,22 +650,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(egarch_model_12_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       egarch_12_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      egarch_forecast_12_std_10d_list[[length(egarch_forecast_12_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       egarch_12std_var_series_95 <- c(egarch_12std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       egarch_12std_var_series_99 <- c(egarch_12std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      egarch_12std_10d_var_series_95 <- c(egarch_12std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      egarch_12std_10d_var_series_99 <- c(egarch_12std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for eGARCH(1,2) std", win_name, current_date_string))
       egarch_12_std_1d <- dummy_forecast_evaluation()
       egarch_12_std_10d <- dummy_forecast_evaluation()
       egarch_12std_var_series_95 <- c(egarch_12std_var_series_95, NA)
       egarch_12std_var_series_99 <- c(egarch_12std_var_series_99, NA)
+      egarch_12std_10d_var_series_95 <- c(egarch_12std_10d_var_series_95, NA)
+      egarch_12std_10d_var_series_99 <- c(egarch_12std_10d_var_series_99, NA)
       
       egarch_forecast_12_std_1d_series <- c(egarch_forecast_12_std_1d_series, NA)
+      egarch_forecast_12_std_10d_list[[length(egarch_forecast_12_std_10d_list) + 1]] <- NA
     }
     
     # Fit a eGARCH(2,2) model
@@ -502,22 +721,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(egarch_model_22_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       egarch_22_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      egarch_forecast_22_std_10d_list[[length(egarch_forecast_22_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       egarch_22std_var_series_95 <- c(egarch_22std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       egarch_22std_var_series_99 <- c(egarch_22std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      egarch_22std_10d_var_series_95 <- c(egarch_22std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      egarch_22std_10d_var_series_99 <- c(egarch_22std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for eGARCH(2,2) std", win_name, current_date_string))
       egarch_22_std_1d <- dummy_forecast_evaluation()
       egarch_22_std_10d <- dummy_forecast_evaluation()
       egarch_22std_var_series_95 <- c(egarch_22std_var_series_95, NA)
       egarch_22std_var_series_99 <- c(egarch_22std_var_series_99, NA)
+      egarch_22std_10d_var_series_95 <- c(egarch_22std_10d_var_series_95, NA)
+      egarch_22std_10d_var_series_99 <- c(egarch_22std_10d_var_series_99, NA)
       
       egarch_forecast_22_std_1d_series <- c(egarch_forecast_22_std_1d_series, NA)
+      egarch_forecast_22_std_10d_list[[length(egarch_forecast_22_std_10d_list) + 1]] <- NA
     }
     
     # Fit a tGARCH(1,1) model
@@ -549,22 +792,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(tgarch_model_11_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       tgarch_11_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      tgarch_forecast_11_std_10d_list[[length(tgarch_forecast_11_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       tgarch_11std_var_series_95 <- c(tgarch_11std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       tgarch_11std_var_series_99 <- c(tgarch_11std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      tgarch_11std_10d_var_series_95 <- c(tgarch_11std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      tgarch_11std_10d_var_series_99 <- c(tgarch_11std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for tGARCH(1,1) std", win_name, current_date_string))
       tgarch_11_std_1d <- dummy_forecast_evaluation()
       tgarch_11_std_10d <- dummy_forecast_evaluation()
       tgarch_11std_var_series_95 <- c(tgarch_11std_var_series_95, NA)
       tgarch_11std_var_series_99 <- c(tgarch_11std_var_series_99, NA)
+      tgarch_11std_10d_var_series_95 <- c(tgarch_11std_10d_var_series_95, NA)
+      tgarch_11std_10d_var_series_99 <- c(tgarch_11std_10d_var_series_99, NA)
       
       tgarch_forecast_11_std_1d_series <- c(tgarch_forecast_11_std_1d_series, NA)
+      tgarch_forecast_11_std_10d_list[[length(tgarch_forecast_11_std_10d_list) + 1]] <- NA
     }
     
     # Fit a tGARCH(2,1) model
@@ -596,22 +863,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(tgarch_model_21_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       tgarch_21_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      tgarch_forecast_21_std_10d_list[[length(tgarch_forecast_21_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       tgarch_21std_var_series_95 <- c(tgarch_21std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       tgarch_21std_var_series_99 <- c(tgarch_21std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      tgarch_21std_10d_var_series_95 <- c(tgarch_21std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      tgarch_21std_10d_var_series_99 <- c(tgarch_21std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for tGARCH(2,1) std", win_name, current_date_string))
       tgarch_21_std_1d <- dummy_forecast_evaluation()
       tgarch_21_std_10d <- dummy_forecast_evaluation()
       tgarch_21std_var_series_95 <- c(tgarch_21std_var_series_95, NA)
       tgarch_21std_var_series_99 <- c(tgarch_21std_var_series_99, NA)
+      tgarch_21std_10d_var_series_95 <- c(tgarch_21std_10d_var_series_95, NA)
+      tgarch_21std_10d_var_series_99 <- c(tgarch_21std_10d_var_series_99, NA)
       
       tgarch_forecast_21_std_1d_series <- c(tgarch_forecast_21_std_1d_series, NA)
+      tgarch_forecast_21_std_10d_list[[length(tgarch_forecast_21_std_10d_list) + 1]] <- NA
     }
     
     # Fit a tGARCH(1,2) model
@@ -643,22 +934,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(tgarch_model_12_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       tgarch_12_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      tgarch_forecast_12_std_10d_list[[length(tgarch_forecast_12_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       tgarch_12std_var_series_95 <- c(tgarch_12std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       tgarch_12std_var_series_99 <- c(tgarch_12std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      tgarch_12std_10d_var_series_95 <- c(tgarch_12std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      tgarch_12std_10d_var_series_99 <- c(tgarch_12std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for tGARCH(1,2) std", win_name, current_date_string))
       tgarch_12_std_1d <- dummy_forecast_evaluation()
       tgarch_12_std_10d <- dummy_forecast_evaluation()
       tgarch_12std_var_series_95 <- c(tgarch_12std_var_series_95, NA)
       tgarch_12std_var_series_99 <- c(tgarch_12std_var_series_99, NA)
+      tgarch_12std_10d_var_series_95 <- c(tgarch_12std_10d_var_series_95, NA)
+      tgarch_12std_10d_var_series_99 <- c(tgarch_12std_10d_var_series_99, NA)
       
       tgarch_forecast_12_std_1d_series <- c(tgarch_forecast_12_std_1d_series, NA)
+      tgarch_forecast_12_std_10d_list[[length(tgarch_forecast_12_std_10d_list) + 1]] <- NA
     }
     
     # Fit a tGARCH(2,2) model
@@ -690,22 +1005,46 @@ for (win_name in names(window_lengths)) {
       garch_forecast_10d <- ugarchforecast(tgarch_model_22_std, n.ahead = 10)
       garch_mean_forecast_10d <- as.numeric(garch_forecast_10d@forecast$seriesFor)
       tgarch_22_std_10d <- forecast_evaluation(test_data_10d, garch_mean_forecast_10d)
+      tgarch_forecast_22_std_10d_list[[length(tgarch_forecast_22_std_10d_list) + 1]] <- garch_mean_forecast_10d
       
+      params <- coef(garch_model_11_std)
+      shape <- params["shape"]
+      q_95 <- qdist("std", alpha_95, shape = shape)
+      q_99 <- qdist("std", alpha_99, shape = shape)
+      # 1d VaR
       mu <- fitted(garch_forecast_1d)[1]
       sigma <- sigma(garch_forecast_1d)[1]
-      garch_var <- mu + z_95 * sigma    # 95% confidence
+      garch_var <- mu + q_95 * sigma    # 95% confidence
       tgarch_22std_var_series_95 <- c(tgarch_22std_var_series_95, garch_var)
       
-      garch_var <- mu + z_99 * sigma    # 99% confidence
+      garch_var <- mu + q_99 * sigma    # 99% confidence
       tgarch_22std_var_series_99 <- c(tgarch_22std_var_series_99, garch_var)
+      
+      # 10d VaR
+      mu <- fitted(garch_forecast_10d)[1]
+      sigma <- sigma(garch_forecast_10d)[1]
+      # Compute cumulative 10-day VaR assuming mean and variance are additive
+      # Sum of mu and sum of variances
+      mu_10d <- sum(mu)
+      var_10d <- sum(sigma^2)
+      sd_10d <- sqrt(var_10d)
+      
+      var_10d <- mu_10d + q_95 * sd_10d # 95% confidence
+      tgarch_22std_10d_var_series_95 <- c(tgarch_22std_10d_var_series_95, var_10d)
+      
+      var_10d <- mu_10d + q_99 * sd_10d # 99% confidence
+      tgarch_22std_10d_var_series_99 <- c(tgarch_22std_10d_var_series_99, var_10d)
     } else {
       message(sprintf("Iteration %s %s: convergence failed for tGARCH(2,2) std", win_name, current_date_string))
       tgarch_22_std_1d <- dummy_forecast_evaluation()
       tgarch_22_std_10d <- dummy_forecast_evaluation()
       tgarch_22std_var_series_95 <- c(tgarch_22std_var_series_95, NA)
       tgarch_22std_var_series_99 <- c(tgarch_22std_var_series_99, NA)
+      tgarch_22std_10d_var_series_95 <- c(tgarch_22std_10d_var_series_95, NA)
+      tgarch_22std_10d_var_series_99 <- c(tgarch_22std_10d_var_series_99, NA)
       
       tgarch_forecast_22_std_1d_series <- c(tgarch_forecast_22_std_1d_series, NA)
+      tgarch_forecast_22_std_10d_list[[length(tgarch_forecast_22_std_10d_list) + 1]] <- NA
     }
     
     #### Historical VaR ######
@@ -884,6 +1223,40 @@ for (win_name in names(window_lengths)) {
       tGARCH_22_STD_10d_MAPE = tgarch_22_std_10d$mape
     )
   }
+  # Print overall forecast evaluation for each window
+  print(paste(win_name, 'arima_1d ', forecast_evaluation(test_data_1d_all, arima_forecast_1d_series)))
+  print(paste(win_name, 'garch_11_std_1d ', forecast_evaluation(test_data_1d_all, garch_forecast_11_std_1d_series)))
+  print(paste(win_name, 'garch_12_std_1d ', forecast_evaluation(test_data_1d_all, garch_forecast_12_std_1d_series)))
+  print(paste(win_name, 'garch_21_std_1d ', forecast_evaluation(test_data_1d_all, garch_forecast_12_std_1d_series)))
+  print(paste(win_name, 'garch_22_std_1d ', forecast_evaluation(test_data_1d_all, garch_forecast_22_std_1d_series)))
+  
+  print(paste(win_name, 'egarch_11_std_1d ', forecast_evaluation(test_data_1d_all, egarch_forecast_11_std_1d_series)))
+  print(paste(win_name, 'egarch_12_std_1d ', forecast_evaluation(test_data_1d_all, egarch_forecast_12_std_1d_series)))
+  print(paste(win_name, 'egarch_21_std_1d ', forecast_evaluation(test_data_1d_all, egarch_forecast_21_std_1d_series)))
+  print(paste(win_name, 'egarch_22_std_1d ', forecast_evaluation(test_data_1d_all, egarch_forecast_22_std_1d_series)))
+  
+  print(paste(win_name, 'tgarch_11_std_1d ', forecast_evaluation(test_data_1d_all, tgarch_forecast_11_std_1d_series)))
+  print(paste(win_name, 'tgarch_12_std_1d ', forecast_evaluation(test_data_1d_all, tgarch_forecast_12_std_1d_series)))
+  print(paste(win_name, 'tgarch_21_std_1d ', forecast_evaluation(test_data_1d_all, tgarch_forecast_21_std_1d_series)))
+  print(paste(win_name, 'tgarch_22_std_1d ', forecast_evaluation(test_data_1d_all, tgarch_forecast_22_std_1d_series)))
+  
+  print(paste(win_name, 'arima_10d', forecast_evaluation_10d(test_data_10d_list, arima_forecast_10d_list)))
+  print(paste(win_name, 'garch_11_std_10d', forecast_evaluation_10d(test_data_10d_list, garch_forecast_11_std_10d_list)))
+  print(paste(win_name, 'garch_12_std_10d ', forecast_evaluation_10d(test_data_10d_list, garch_forecast_12_std_10d_list)))
+  print(paste(win_name, 'garch_21_std_10d ', forecast_evaluation_10d(test_data_10d_list, garch_forecast_12_std_10d_list)))
+  print(paste(win_name, 'garch_22_std_10d ', forecast_evaluation_10d(test_data_10d_list, garch_forecast_22_std_10d_list)))
+  
+  print(paste(win_name, 'egarch_11_std_10d ', forecast_evaluation_10d(test_data_10d_list, egarch_forecast_11_std_10d_list)))
+  print(paste(win_name, 'egarch_12_std_10d ', forecast_evaluation_10d(test_data_10d_list, egarch_forecast_12_std_10d_list)))
+  print(paste(win_name, 'egarch_21_std_10d ', forecast_evaluation_10d(test_data_10d_list, egarch_forecast_21_std_10d_list)))
+  print(paste(win_name, 'egarch_22_std_10d ', forecast_evaluation_10d(test_data_10d_list, egarch_forecast_22_std_10d_list)))
+  
+  print(paste(win_name, 'tgarch_11_std_10d ', forecast_evaluation_10d(test_data_10d_list, tgarch_forecast_11_std_10d_list)))
+  print(paste(win_name, 'tgarch_12_std_10d ', forecast_evaluation_10d(test_data_10d_list, tgarch_forecast_12_std_10d_list)))
+  print(paste(win_name, 'tgarch_21_std_10d ', forecast_evaluation_10d(test_data_10d_list, tgarch_forecast_21_std_10d_list)))
+  print(paste(win_name, 'tgarch_22_std_10d ', forecast_evaluation_10d(test_data_10d_list, tgarch_forecast_22_std_10d_list)))
+  
+  test_data_cum_10d_xts <- xts(test_data_cum_10d_all, order.by = index(test_data_1d_all))
   
   # VaR Metrics
   his_var_xts_95 <- xts(his_var_series_95, order.by = index(test_data_1d_all))
@@ -892,161 +1265,147 @@ for (win_name in names(window_lengths)) {
   his_var_95_metrics <- VaRTest(0.05, test_data_1d_all, his_var_xts_95, 0.95)
   his_var_99_metrics <- VaRTest(0.01, test_data_1d_all, his_var_xts_99, 0.99)
   
-  # GARCH
-  garch_var_xts_95 <- xts(garch_11std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_11std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  # GARCH - 1d
+  garch_11std_var_95_metrics <- garch_var_test(garch_11std_var_series_95, test_data_1d_all, 0.95)
+  garch_11std_var_99_metrics <- garch_var_test(garch_11std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_99 <- xts(garch_11std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_11std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  garch_21std_var_95_metrics <- garch_var_test(garch_21std_var_series_95, test_data_1d_all, 0.95)
+  garch_21std_var_99_metrics <- garch_var_test(garch_21std_var_series_99, test_data_1d_all, 0.99)
   
+  garch_12std_var_95_metrics <- garch_var_test(garch_12std_var_series_95, test_data_1d_all, 0.95)
+  garch_12std_var_99_metrics <- garch_var_test(garch_12std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_95 <- xts(garch_21std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_21std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  garch_22std_var_95_metrics <- garch_var_test(garch_22std_var_series_95, test_data_1d_all, 0.95)
+  garch_22std_var_99_metrics <- garch_var_test(garch_22std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_99 <- xts(garch_21std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_21std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  # GARCH - 10d
+  garch_11std_10d_var_95_metrics <- garch_var_test(garch_11std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  garch_11std_10d_var_99_metrics <- garch_var_test(garch_11std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
+  garch_21std_10d_var_95_metrics <- garch_var_test(garch_21std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  garch_21std_10d_var_99_metrics <- garch_var_test(garch_21std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_95 <- xts(garch_12std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_12std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  garch_12std_10d_var_95_metrics <- garch_var_test(garch_12std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  garch_12std_10d_var_99_metrics <- garch_var_test(garch_12std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_99 <- xts(garch_12std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_12std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  garch_22std_10d_var_95_metrics <- garch_var_test(garch_22std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  garch_22std_10d_var_99_metrics <- garch_var_test(garch_22std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
+  # eGARCH - 1d
+  egarch_11std_var_95_metrics <- garch_var_test(egarch_11std_var_series_95, test_data_1d_all, 0.95)
+  egarch_11std_var_99_metrics <- garch_var_test(egarch_11std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_95 <- xts(garch_22std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_22std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  egarch_21std_var_95_metrics <- garch_var_test(egarch_21std_var_series_95, test_data_1d_all, 0.95)
+  egarch_21std_var_99_metrics <- garch_var_test(egarch_21std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_99 <- xts(garch_22std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  garch_22std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  egarch_12std_var_95_metrics <- garch_var_test(egarch_12std_var_series_95, test_data_1d_all, 0.95)
+  egarch_12std_var_99_metrics <- garch_var_test(egarch_12std_var_series_99, test_data_1d_all, 0.99)
+
+  egarch_22std_var_95_metrics <- garch_var_test(egarch_22std_var_series_95, test_data_1d_all, 0.95)
+  egarch_22std_var_99_metrics <- garch_var_test(egarch_22std_var_series_99, test_data_1d_all, 0.99)
   
-  # eGARCH
-  garch_var_xts_95 <- xts(egarch_11std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_11std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  # eGARCH - 10d
+  egarch_11std_10d_var_95_metrics <- garch_var_test(egarch_11std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  egarch_11std_10d_var_99_metrics <- garch_var_test(egarch_11std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_99 <- xts(egarch_11std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_11std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  egarch_21std_10d_var_95_metrics <- garch_var_test(egarch_21std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  egarch_21std_10d_var_99_metrics <- garch_var_test(egarch_21std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
+  egarch_12std_10d_var_95_metrics <- garch_var_test(egarch_12std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  egarch_12std_10d_var_99_metrics <- garch_var_test(egarch_12std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_95 <- xts(egarch_21std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_21std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  egarch_22std_10d_var_95_metrics <- garch_var_test(egarch_22std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  egarch_22std_10d_var_99_metrics <- garch_var_test(egarch_22std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_99 <- xts(egarch_21std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_21std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  # tGARCH - 1d
+  tgarch_11std_var_95_metrics <- garch_var_test(tgarch_11std_var_series_95, test_data_1d_all, 0.95)
+  tgarch_11std_var_99_metrics <- garch_var_test(tgarch_11std_var_series_99, test_data_1d_all, 0.99)
+
+  tgarch_21std_var_95_metrics <- garch_var_test(tgarch_21std_var_series_95, test_data_1d_all, 0.95)
+  tgarch_21std_var_99_metrics <- garch_var_test(tgarch_21std_var_series_99, test_data_1d_all, 0.99)
   
+  tgarch_12std_var_95_metrics <- garch_var_test(tgarch_12std_var_series_95, test_data_1d_all, 0.95)
+  tgarch_12std_var_99_metrics <- garch_var_test(tgarch_12std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_95 <- xts(egarch_12std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_12std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  tgarch_22std_var_95_metrics <- garch_var_test(tgarch_22std_var_series_95, test_data_1d_all, 0.95)
+  tgarch_22std_var_99_metrics <- garch_var_test(tgarch_22std_var_series_99, test_data_1d_all, 0.99)
   
-  garch_var_xts_99 <- xts(egarch_12std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_12std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  # tGARCH - 10d
+  tgarch_11std_10d_var_95_metrics <- garch_var_test(tgarch_11std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  tgarch_11std_10d_var_99_metrics <- garch_var_test(tgarch_11std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
+  tgarch_21std_10d_var_95_metrics <- garch_var_test(tgarch_21std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  tgarch_21std_10d_var_99_metrics <- garch_var_test(tgarch_21std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_95 <- xts(egarch_22std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_22std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  tgarch_12std_10d_var_95_metrics <- garch_var_test(tgarch_12std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  tgarch_12std_10d_var_99_metrics <- garch_var_test(tgarch_12std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  garch_var_xts_99 <- xts(egarch_22std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  egarch_22std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  tgarch_22std_10d_var_95_metrics <- garch_var_test(tgarch_22std_10d_var_series_95, test_data_cum_10d_xts, 0.95)
+  tgarch_22std_10d_var_99_metrics <- garch_var_test(tgarch_22std_10d_var_series_99, test_data_cum_10d_xts, 0.99)
   
-  # tGARCH
-  garch_var_xts_95 <- xts(tgarch_11std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_11std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  # Comparative Backtesting - 1d VaR
+  his_95_qs <- mean_quantile_loss(his_var_series_95, test_data_1d_all, alpha_95)
+  garch_11std_95_qs<- mean_quantile_loss(garch_11std_var_series_95, test_data_1d_all, alpha_95)
+  garch_12std_95_qs<- mean_quantile_loss(garch_12std_var_series_95, test_data_1d_all, alpha_95)
+  garch_21std_95_qs<- mean_quantile_loss(garch_21std_var_series_95, test_data_1d_all, alpha_95)
+  garch_22std_95_qs<- mean_quantile_loss(garch_22std_var_series_95, test_data_1d_all, alpha_95)
   
-  garch_var_xts_99 <- xts(tgarch_11std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_11std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  egarch_11std_95_qs<- mean_quantile_loss(egarch_11std_var_series_95, test_data_1d_all, alpha_95)
+  egarch_12std_95_qs<- mean_quantile_loss(egarch_12std_var_series_95, test_data_1d_all, alpha_95)
+  egarch_21std_95_qs<- mean_quantile_loss(egarch_21std_var_series_95, test_data_1d_all, alpha_95)
+  egarch_22std_95_qs<- mean_quantile_loss(egarch_22std_var_series_95, test_data_1d_all, alpha_95)
   
+  tgarch_11std_95_qs<- mean_quantile_loss(tgarch_11std_var_series_95, test_data_1d_all, alpha_95)
+  tgarch_12std_95_qs<- mean_quantile_loss(tgarch_12std_var_series_95, test_data_1d_all, alpha_95)
+  tgarch_21std_95_qs<- mean_quantile_loss(tgarch_21std_var_series_95, test_data_1d_all, alpha_95)
+  tgarch_22std_95_qs<- mean_quantile_loss(tgarch_22std_var_series_95, test_data_1d_all, alpha_95)
   
-  garch_var_xts_95 <- xts(tgarch_21std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_21std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  his_99_qs <- mean_quantile_loss(his_var_series_99, test_data_1d_all, alpha_99)
+  garch_11std_99_qs<- mean_quantile_loss(garch_11std_var_series_99, test_data_1d_all, alpha_99)
+  garch_12std_99_qs<- mean_quantile_loss(garch_12std_var_series_99, test_data_1d_all, alpha_99)
+  garch_21std_99_qs<- mean_quantile_loss(garch_21std_var_series_99, test_data_1d_all, alpha_99)
+  garch_22std_99_qs<- mean_quantile_loss(garch_22std_var_series_99, test_data_1d_all, alpha_99)
   
-  garch_var_xts_99 <- xts(tgarch_21std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_21std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  egarch_11std_99_qs<- mean_quantile_loss(egarch_11std_var_series_99, test_data_1d_all, alpha_99)
+  egarch_12std_99_qs<- mean_quantile_loss(egarch_12std_var_series_99, test_data_1d_all, alpha_99)
+  egarch_21std_99_qs<- mean_quantile_loss(egarch_21std_var_series_99, test_data_1d_all, alpha_99)
+  egarch_22std_99_qs<- mean_quantile_loss(egarch_22std_var_series_99, test_data_1d_all, alpha_99)
   
+  tgarch_11std_99_qs<- mean_quantile_loss(tgarch_11std_var_series_99, test_data_1d_all, alpha_99)
+  tgarch_12std_99_qs<- mean_quantile_loss(tgarch_12std_var_series_99, test_data_1d_all, alpha_99)
+  tgarch_21std_99_qs<- mean_quantile_loss(tgarch_21std_var_series_99, test_data_1d_all, alpha_99)
+  tgarch_22std_99_qs<- mean_quantile_loss(tgarch_22std_var_series_99, test_data_1d_all, alpha_99)
   
-  garch_var_xts_95 <- xts(tgarch_12std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_12std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  # Comparative Backtesting - 10d VaR
+  garch_11std_10d_95_qs<- mean_quantile_loss(garch_11std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  garch_12std_10d_95_qs<- mean_quantile_loss(garch_12std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  garch_21std_10d_95_qs<- mean_quantile_loss(garch_21std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  garch_22std_10d_95_qs<- mean_quantile_loss(garch_22std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
   
-  garch_var_xts_99 <- xts(tgarch_12std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_12std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  egarch_11std_10d_95_qs<- mean_quantile_loss(egarch_11std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  egarch_12std_10d_95_qs<- mean_quantile_loss(egarch_12std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  egarch_21std_10d_95_qs<- mean_quantile_loss(egarch_21std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  egarch_22std_10d_95_qs<- mean_quantile_loss(egarch_22std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
   
+  tgarch_11std_10d_95_qs<- mean_quantile_loss(tgarch_11std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  tgarch_12std_10d_95_qs<- mean_quantile_loss(tgarch_12std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  tgarch_21std_10d_95_qs<- mean_quantile_loss(tgarch_21std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
+  tgarch_22std_10d_95_qs<- mean_quantile_loss(tgarch_22std_10d_var_series_95, test_data_cum_10d_all, alpha_95)
   
-  garch_var_xts_95 <- xts(tgarch_22std_var_series_95, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_95))
-  garch_var_xts_95_clean <- garch_var_xts_95[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_22std_var_95_metrics <- VaRTest(0.05, test_data_1d_clean, garch_var_xts_95_clean, 0.95)
+  garch_11std_10d_99_qs<- mean_quantile_loss(garch_11std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  garch_12std_10d_99_qs<- mean_quantile_loss(garch_12std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  garch_21std_10d_99_qs<- mean_quantile_loss(garch_21std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  garch_22std_10d_99_qs<- mean_quantile_loss(garch_22std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
   
-  garch_var_xts_99 <- xts(tgarch_22std_var_series_99, order.by = index(test_data_1d_all))
-  valid_idx <- which(!is.na(garch_var_xts_99))
-  garch_var_xts_99_clean <- garch_var_xts_99[valid_idx]
-  test_data_1d_clean <- test_data_1d_all[valid_idx]
-  tgarch_22std_var_99_metrics <- VaRTest(0.01, test_data_1d_clean, garch_var_xts_99_clean, 0.99)
+  egarch_11std_10d_99_qs<- mean_quantile_loss(egarch_11std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  egarch_12std_10d_99_qs<- mean_quantile_loss(egarch_12std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  egarch_21std_10d_99_qs<- mean_quantile_loss(egarch_21std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  egarch_22std_10d_99_qs<- mean_quantile_loss(egarch_22std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  
+  tgarch_11std_10d_99_qs<- mean_quantile_loss(tgarch_11std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  tgarch_12std_10d_99_qs<- mean_quantile_loss(tgarch_12std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  tgarch_21std_10d_99_qs<- mean_quantile_loss(tgarch_21std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
+  tgarch_22std_10d_99_qs<- mean_quantile_loss(tgarch_22std_10d_var_series_99, test_data_cum_10d_all, alpha_99)
   
   # Store Var Results
   var_results[[length(var_results) + 1]] <- data.frame(
@@ -1067,13 +1426,11 @@ for (win_name in names(window_lengths)) {
     garch_11std_95_failures = sum(is.na(garch_11std_var_series_95)),
     garch_11std_99_failures = sum(is.na(garch_11std_var_series_99)),
     
-    garch_11std_95_exp_violations = garch_11std_var_95_metrics$expected.exceed,
     garch_11std_95_violations = garch_11std_var_95_metrics$actual.exceed,
     garch_11std_95_kupic_p = garch_11std_var_95_metrics$uc.LRp,
     garch_11std_95_kupic_decision = garch_11std_var_95_metrics$uc.Decision,
     garch_11std_95_chris_p = garch_11std_var_95_metrics$cc.LRp,
     garch_11std_95_chris_decision = garch_11std_var_95_metrics$cc.Decision,
-    garch_11std_99_exp_violations = garch_11std_var_99_metrics$expected.exceed,
     garch_11std_99_violations = garch_11std_var_99_metrics$actual.exceed,
     garch_11std_99_kupic_p = garch_11std_var_99_metrics$uc.LRp,
     garch_11std_99_kupic_decision = garch_11std_var_99_metrics$uc.Decision,
@@ -1083,13 +1440,11 @@ for (win_name in names(window_lengths)) {
     garch_21std_95_failures = sum(is.na(garch_21std_var_series_95)),
     garch_21std_99_failures = sum(is.na(garch_21std_var_series_99)),
     
-    garch_21std_95_exp_violations = garch_21std_var_95_metrics$expected.exceed,
     garch_21std_95_violations = garch_21std_var_95_metrics$actual.exceed,
     garch_21std_95_kupic_p = garch_21std_var_95_metrics$uc.LRp,
     garch_21std_95_kupic_decision = garch_21std_var_95_metrics$uc.Decision,
     garch_21std_95_chris_p = garch_21std_var_95_metrics$cc.LRp,
     garch_21std_95_chris_decision = garch_21std_var_95_metrics$cc.Decision,
-    garch_21std_99_exp_violations = garch_21std_var_99_metrics$expected.exceed,
     garch_21std_99_violations = garch_21std_var_99_metrics$actual.exceed,
     garch_21std_99_kupic_p = garch_21std_var_99_metrics$uc.LRp,
     garch_21std_99_kupic_decision = garch_21std_var_99_metrics$uc.Decision,
@@ -1099,13 +1454,11 @@ for (win_name in names(window_lengths)) {
     garch_12std_95_failures = sum(is.na(garch_12std_var_series_95)),
     garch_12std_99_failures = sum(is.na(garch_12std_var_series_99)),
     
-    garch_12std_95_exp_violations = garch_12std_var_95_metrics$expected.exceed,
     garch_12std_95_violations = garch_12std_var_95_metrics$actual.exceed,
     garch_12std_95_kupic_p = garch_12std_var_95_metrics$uc.LRp,
     garch_12std_95_kupic_decision = garch_12std_var_95_metrics$uc.Decision,
     garch_12std_95_chris_p = garch_12std_var_95_metrics$cc.LRp,
     garch_12std_95_chris_decision = garch_12std_var_95_metrics$cc.Decision,
-    garch_12std_99_exp_violations = garch_12std_var_99_metrics$expected.exceed,
     garch_12std_99_violations = garch_12std_var_99_metrics$actual.exceed,
     garch_12std_99_kupic_p = garch_12std_var_99_metrics$uc.LRp,
     garch_12std_99_kupic_decision = garch_12std_var_99_metrics$uc.Decision,
@@ -1115,13 +1468,11 @@ for (win_name in names(window_lengths)) {
     garch_22std_95_failures = sum(is.na(garch_22std_var_series_95)),
     garch_22std_99_failures = sum(is.na(garch_22std_var_series_99)),
     
-    garch_22std_95_exp_violations = garch_22std_var_95_metrics$expected.exceed,
     garch_22std_95_violations = garch_22std_var_95_metrics$actual.exceed,
     garch_22std_95_kupic_p = garch_22std_var_95_metrics$uc.LRp,
     garch_22std_95_kupic_decision = garch_22std_var_95_metrics$uc.Decision,
     garch_22std_95_chris_p = garch_22std_var_95_metrics$cc.LRp,
     garch_22std_95_chris_decision = garch_22std_var_95_metrics$cc.Decision,
-    garch_22std_99_exp_violations = garch_22std_var_99_metrics$expected.exceed,
     garch_22std_99_violations = garch_22std_var_99_metrics$actual.exceed,
     garch_22std_99_kupic_p = garch_22std_var_99_metrics$uc.LRp,
     garch_22std_99_kupic_decision = garch_22std_var_99_metrics$uc.Decision,
@@ -1131,13 +1482,11 @@ for (win_name in names(window_lengths)) {
     egarch_11std_95_failures = sum(is.na(egarch_11std_var_series_95)),
     egarch_11std_99_failures = sum(is.na(egarch_11std_var_series_99)),
     
-    egarch_11std_95_exp_violations = egarch_11std_var_95_metrics$expected.exceed,
     egarch_11std_95_violations = egarch_11std_var_95_metrics$actual.exceed,
     egarch_11std_95_kupic_p = egarch_11std_var_95_metrics$uc.LRp,
     egarch_11std_95_kupic_decision = egarch_11std_var_95_metrics$uc.Decision,
     egarch_11std_95_chris_p = egarch_11std_var_95_metrics$cc.LRp,
     egarch_11std_95_chris_decision = egarch_11std_var_95_metrics$cc.Decision,
-    egarch_11std_99_exp_violations = egarch_11std_var_99_metrics$expected.exceed,
     egarch_11std_99_violations = egarch_11std_var_99_metrics$actual.exceed,
     egarch_11std_99_kupic_p = egarch_11std_var_99_metrics$uc.LRp,
     egarch_11std_99_kupic_decision = egarch_11std_var_99_metrics$uc.Decision,
@@ -1147,13 +1496,11 @@ for (win_name in names(window_lengths)) {
     egarch_21std_95_failures = sum(is.na(egarch_21std_var_series_95)),
     egarch_21std_99_failures = sum(is.na(egarch_21std_var_series_99)),
     
-    egarch_21std_95_exp_violations = egarch_21std_var_95_metrics$expected.exceed,
     egarch_21std_95_violations = egarch_21std_var_95_metrics$actual.exceed,
     egarch_21std_95_kupic_p = egarch_21std_var_95_metrics$uc.LRp,
     egarch_21std_95_kupic_decision = egarch_21std_var_95_metrics$uc.Decision,
     egarch_21std_95_chris_p = egarch_21std_var_95_metrics$cc.LRp,
     egarch_21std_95_chris_decision = egarch_21std_var_95_metrics$cc.Decision,
-    egarch_21std_99_exp_violations = egarch_21std_var_99_metrics$expected.exceed,
     egarch_21std_99_violations = egarch_21std_var_99_metrics$actual.exceed,
     egarch_21std_99_kupic_p = egarch_21std_var_99_metrics$uc.LRp,
     egarch_21std_99_kupic_decision = egarch_21std_var_99_metrics$uc.Decision,
@@ -1163,13 +1510,11 @@ for (win_name in names(window_lengths)) {
     egarch_12std_95_failures = sum(is.na(egarch_12std_var_series_95)),
     egarch_12std_99_failures = sum(is.na(egarch_12std_var_series_99)),
     
-    egarch_12std_95_exp_violations = egarch_12std_var_95_metrics$expected.exceed,
     egarch_12std_95_violations = egarch_12std_var_95_metrics$actual.exceed,
     egarch_12std_95_kupic_p = egarch_12std_var_95_metrics$uc.LRp,
     egarch_12std_95_kupic_decision = egarch_12std_var_95_metrics$uc.Decision,
     egarch_12std_95_chris_p = egarch_12std_var_95_metrics$cc.LRp,
     egarch_12std_95_chris_decision = egarch_12std_var_95_metrics$cc.Decision,
-    egarch_12std_99_exp_violations = egarch_12std_var_99_metrics$expected.exceed,
     egarch_12std_99_violations = egarch_12std_var_99_metrics$actual.exceed,
     egarch_12std_99_kupic_p = egarch_12std_var_99_metrics$uc.LRp,
     egarch_12std_99_kupic_decision = egarch_12std_var_99_metrics$uc.Decision,
@@ -1179,13 +1524,11 @@ for (win_name in names(window_lengths)) {
     egarch_22std_95_failures = sum(is.na(egarch_22std_var_series_95)),
     egarch_22std_99_failures = sum(is.na(egarch_22std_var_series_99)),
     
-    egarch_22std_95_exp_violations = egarch_22std_var_95_metrics$expected.exceed,
     egarch_22std_95_violations = egarch_22std_var_95_metrics$actual.exceed,
     egarch_22std_95_kupic_p = egarch_22std_var_95_metrics$uc.LRp,
     egarch_22std_95_kupic_decision = egarch_22std_var_95_metrics$uc.Decision,
     egarch_22std_95_chris_p = egarch_22std_var_95_metrics$cc.LRp,
     egarch_22std_95_chris_decision = egarch_22std_var_95_metrics$cc.Decision,
-    egarch_22std_99_exp_violations = egarch_22std_var_99_metrics$expected.exceed,
     egarch_22std_99_violations = egarch_22std_var_99_metrics$actual.exceed,
     egarch_22std_99_kupic_p = egarch_22std_var_99_metrics$uc.LRp,
     egarch_22std_99_kupic_decision = egarch_22std_var_99_metrics$uc.Decision,
@@ -1195,13 +1538,11 @@ for (win_name in names(window_lengths)) {
     tgarch_11std_95_failures = sum(is.na(tgarch_11std_var_series_95)),
     tgarch_11std_99_failures = sum(is.na(tgarch_11std_var_series_99)),
     
-    tgarch_11std_95_exp_violations = tgarch_11std_var_95_metrics$expected.exceed,
     tgarch_11std_95_violations = tgarch_11std_var_95_metrics$actual.exceed,
     tgarch_11std_95_kupic_p = tgarch_11std_var_95_metrics$uc.LRp,
     tgarch_11std_95_kupic_decision = tgarch_11std_var_95_metrics$uc.Decision,
     tgarch_11std_95_chris_p = tgarch_11std_var_95_metrics$cc.LRp,
     tgarch_11std_95_chris_decision = tgarch_11std_var_95_metrics$cc.Decision,
-    tgarch_11std_99_exp_violations = tgarch_11std_var_99_metrics$expected.exceed,
     tgarch_11std_99_violations = tgarch_11std_var_99_metrics$actual.exceed,
     tgarch_11std_99_kupic_p = tgarch_11std_var_99_metrics$uc.LRp,
     tgarch_11std_99_kupic_decision = tgarch_11std_var_99_metrics$uc.Decision,
@@ -1211,13 +1552,11 @@ for (win_name in names(window_lengths)) {
     tgarch_21std_95_failures = sum(is.na(tgarch_21std_var_series_95)),
     tgarch_21std_99_failures = sum(is.na(tgarch_21std_var_series_99)),
     
-    tgarch_21std_95_exp_violations = tgarch_21std_var_95_metrics$expected.exceed,
     tgarch_21std_95_violations = tgarch_21std_var_95_metrics$actual.exceed,
     tgarch_21std_95_kupic_p = tgarch_21std_var_95_metrics$uc.LRp,
     tgarch_21std_95_kupic_decision = tgarch_21std_var_95_metrics$uc.Decision,
     tgarch_21std_95_chris_p = tgarch_21std_var_95_metrics$cc.LRp,
     tgarch_21std_95_chris_decision = tgarch_21std_var_95_metrics$cc.Decision,
-    tgarch_21std_99_exp_violations = tgarch_21std_var_99_metrics$expected.exceed,
     tgarch_21std_99_violations = tgarch_21std_var_99_metrics$actual.exceed,
     tgarch_21std_99_kupic_p = tgarch_21std_var_99_metrics$uc.LRp,
     tgarch_21std_99_kupic_decision = tgarch_21std_var_99_metrics$uc.Decision,
@@ -1227,13 +1566,11 @@ for (win_name in names(window_lengths)) {
     tgarch_12std_95_failures = sum(is.na(tgarch_12std_var_series_95)),
     tgarch_12std_99_failures = sum(is.na(tgarch_12std_var_series_99)),
     
-    tgarch_12std_95_exp_violations = tgarch_12std_var_95_metrics$expected.exceed,
     tgarch_12std_95_violations = tgarch_12std_var_95_metrics$actual.exceed,
     tgarch_12std_95_kupic_p = tgarch_12std_var_95_metrics$uc.LRp,
     tgarch_12std_95_kupic_decision = tgarch_12std_var_95_metrics$uc.Decision,
     tgarch_12std_95_chris_p = tgarch_12std_var_95_metrics$cc.LRp,
     tgarch_12std_95_chris_decision = tgarch_12std_var_95_metrics$cc.Decision,
-    tgarch_12std_99_exp_violations = tgarch_12std_var_99_metrics$expected.exceed,
     tgarch_12std_99_violations = tgarch_12std_var_99_metrics$actual.exceed,
     tgarch_12std_99_kupic_p = tgarch_12std_var_99_metrics$uc.LRp,
     tgarch_12std_99_kupic_decision = tgarch_12std_var_99_metrics$uc.Decision,
@@ -1243,18 +1580,202 @@ for (win_name in names(window_lengths)) {
     tgarch_22std_95_failures = sum(is.na(tgarch_22std_var_series_95)),
     tgarch_22std_99_failures = sum(is.na(tgarch_22std_var_series_99)),
     
-    tgarch_22std_95_exp_violations = tgarch_22std_var_95_metrics$expected.exceed,
     tgarch_22std_95_violations = tgarch_22std_var_95_metrics$actual.exceed,
     tgarch_22std_95_kupic_p = tgarch_22std_var_95_metrics$uc.LRp,
     tgarch_22std_95_kupic_decision = tgarch_22std_var_95_metrics$uc.Decision,
     tgarch_22std_95_chris_p = tgarch_22std_var_95_metrics$cc.LRp,
     tgarch_22std_95_chris_decision = tgarch_22std_var_95_metrics$cc.Decision,
-    tgarch_22std_99_exp_violations = tgarch_22std_var_99_metrics$expected.exceed,
     tgarch_22std_99_violations = tgarch_22std_var_99_metrics$actual.exceed,
     tgarch_22std_99_kupic_p = tgarch_22std_var_99_metrics$uc.LRp,
     tgarch_22std_99_kupic_decision = tgarch_22std_var_99_metrics$uc.Decision,
     tgarch_22std_99_chris_p = tgarch_22std_var_99_metrics$cc.LRp,
-    tgarch_22std_99_chris_decision = tgarch_22std_var_99_metrics$cc.Decision
+    tgarch_22std_99_chris_decision = tgarch_22std_var_99_metrics$cc.Decision,
+    # 10d VaR metrics
+    garch_11std_10d_95_violations = garch_11std_10d_var_95_metrics$actual.exceed,
+    garch_11std_10d_95_kupic_p = garch_11std_10d_var_95_metrics$uc.LRp,
+    garch_11std_10d_95_kupic_decision = garch_11std_10d_var_95_metrics$uc.Decision,
+    garch_11std_10d_95_chris_p = garch_11std_10d_var_95_metrics$cc.LRp,
+    garch_11std_10d_95_chris_decision = garch_11std_10d_var_95_metrics$cc.Decision,
+    garch_11std_10d_99_violations = garch_11std_10d_var_99_metrics$actual.exceed,
+    garch_11std_10d_99_kupic_p = garch_11std_10d_var_99_metrics$uc.LRp,
+    garch_11std_10d_99_kupic_decision = garch_11std_10d_var_99_metrics$uc.Decision,
+    garch_11std_10d_99_chris_p = garch_11std_10d_var_99_metrics$cc.LRp,
+    garch_11std_10d_99_chris_decision = garch_11std_10d_var_99_metrics$cc.Decision,
+    
+    garch_21std_10d_95_violations = garch_21std_10d_var_95_metrics$actual.exceed,
+    garch_21std_10d_95_kupic_p = garch_21std_10d_var_95_metrics$uc.LRp,
+    garch_21std_10d_95_kupic_decision = garch_21std_10d_var_95_metrics$uc.Decision,
+    garch_21std_10d_95_chris_p = garch_21std_10d_var_95_metrics$cc.LRp,
+    garch_21std_10d_95_chris_decision = garch_21std_10d_var_95_metrics$cc.Decision,
+    garch_21std_10d_99_violations = garch_21std_10d_var_99_metrics$actual.exceed,
+    garch_21std_10d_99_kupic_p = garch_21std_10d_var_99_metrics$uc.LRp,
+    garch_21std_10d_99_kupic_decision = garch_21std_10d_var_99_metrics$uc.Decision,
+    garch_21std_10d_99_chris_p = garch_21std_10d_var_99_metrics$cc.LRp,
+    garch_21std_10d_99_chris_decision = garch_21std_10d_var_99_metrics$cc.Decision,
+    
+    garch_12std_10d_95_violations = garch_12std_10d_var_95_metrics$actual.exceed,
+    garch_12std_10d_95_kupic_p = garch_12std_10d_var_95_metrics$uc.LRp,
+    garch_12std_10d_95_kupic_decision = garch_12std_10d_var_95_metrics$uc.Decision,
+    garch_12std_10d_95_chris_p = garch_12std_10d_var_95_metrics$cc.LRp,
+    garch_12std_10d_95_chris_decision = garch_12std_10d_var_95_metrics$cc.Decision,
+    garch_12std_10d_99_violations = garch_12std_10d_var_99_metrics$actual.exceed,
+    garch_12std_10d_99_kupic_p = garch_12std_10d_var_99_metrics$uc.LRp,
+    garch_12std_10d_99_kupic_decision = garch_12std_10d_var_99_metrics$uc.Decision,
+    garch_12std_10d_99_chris_p = garch_12std_10d_var_99_metrics$cc.LRp,
+    garch_12std_10d_99_chris_decision = garch_12std_10d_var_99_metrics$cc.Decision,
+    
+    garch_22std_10d_95_violations = garch_22std_10d_var_95_metrics$actual.exceed,
+    garch_22std_10d_95_kupic_p = garch_22std_10d_var_95_metrics$uc.LRp,
+    garch_22std_10d_95_kupic_decision = garch_22std_10d_var_95_metrics$uc.Decision,
+    garch_22std_10d_95_chris_p = garch_22std_10d_var_95_metrics$cc.LRp,
+    garch_22std_10d_95_chris_decision = garch_22std_10d_var_95_metrics$cc.Decision,
+    garch_22std_10d_99_violations = garch_22std_10d_var_99_metrics$actual.exceed,
+    garch_22std_10d_99_kupic_p = garch_22std_10d_var_99_metrics$uc.LRp,
+    garch_22std_10d_99_kupic_decision = garch_22std_10d_var_99_metrics$uc.Decision,
+    garch_22std_10d_99_chris_p = garch_22std_10d_var_99_metrics$cc.LRp,
+    garch_22std_10d_99_chris_decision = garch_22std_10d_var_99_metrics$cc.Decision,
+    
+    egarch_11std_10d_95_violations = egarch_11std_10d_var_95_metrics$actual.exceed,
+    egarch_11std_10d_95_kupic_p = egarch_11std_10d_var_95_metrics$uc.LRp,
+    egarch_11std_10d_95_kupic_decision = egarch_11std_10d_var_95_metrics$uc.Decision,
+    egarch_11std_10d_95_chris_p = egarch_11std_10d_var_95_metrics$cc.LRp,
+    egarch_11std_10d_95_chris_decision = egarch_11std_10d_var_95_metrics$cc.Decision,
+    egarch_11std_10d_99_violations = egarch_11std_10d_var_99_metrics$actual.exceed,
+    egarch_11std_10d_99_kupic_p = egarch_11std_10d_var_99_metrics$uc.LRp,
+    egarch_11std_10d_99_kupic_decision = egarch_11std_10d_var_99_metrics$uc.Decision,
+    egarch_11std_10d_99_chris_p = egarch_11std_10d_var_99_metrics$cc.LRp,
+    egarch_11std_10d_99_chris_decision = egarch_11std_10d_var_99_metrics$cc.Decision,
+    
+    egarch_21std_10d_95_violations = egarch_21std_10d_var_95_metrics$actual.exceed,
+    egarch_21std_10d_95_kupic_p = egarch_21std_10d_var_95_metrics$uc.LRp,
+    egarch_21std_10d_95_kupic_decision = egarch_21std_10d_var_95_metrics$uc.Decision,
+    egarch_21std_10d_95_chris_p = egarch_21std_10d_var_95_metrics$cc.LRp,
+    egarch_21std_10d_95_chris_decision = egarch_21std_10d_var_95_metrics$cc.Decision,
+    egarch_21std_10d_99_violations = egarch_21std_10d_var_99_metrics$actual.exceed,
+    egarch_21std_10d_99_kupic_p = egarch_21std_10d_var_99_metrics$uc.LRp,
+    egarch_21std_10d_99_kupic_decision = egarch_21std_10d_var_99_metrics$uc.Decision,
+    egarch_21std_10d_99_chris_p = egarch_21std_10d_var_99_metrics$cc.LRp,
+    egarch_21std_10d_99_chris_decision = egarch_21std_10d_var_99_metrics$cc.Decision,
+    
+    egarch_12std_10d_95_violations = egarch_12std_10d_var_95_metrics$actual.exceed,
+    egarch_12std_10d_95_kupic_p = egarch_12std_10d_var_95_metrics$uc.LRp,
+    egarch_12std_10d_95_kupic_decision = egarch_12std_10d_var_95_metrics$uc.Decision,
+    egarch_12std_10d_95_chris_p = egarch_12std_10d_var_95_metrics$cc.LRp,
+    egarch_12std_10d_95_chris_decision = egarch_12std_10d_var_95_metrics$cc.Decision,
+    egarch_12std_10d_99_violations = egarch_12std_10d_var_99_metrics$actual.exceed,
+    egarch_12std_10d_99_kupic_p = egarch_12std_10d_var_99_metrics$uc.LRp,
+    egarch_12std_10d_99_kupic_decision = egarch_12std_10d_var_99_metrics$uc.Decision,
+    egarch_12std_10d_99_chris_p = egarch_12std_10d_var_99_metrics$cc.LRp,
+    egarch_12std_10d_99_chris_decision = egarch_12std_10d_var_99_metrics$cc.Decision,
+    
+    egarch_22std_10d_95_violations = egarch_22std_10d_var_95_metrics$actual.exceed,
+    egarch_22std_10d_95_kupic_p = egarch_22std_10d_var_95_metrics$uc.LRp,
+    egarch_22std_10d_95_kupic_decision = egarch_22std_10d_var_95_metrics$uc.Decision,
+    egarch_22std_10d_95_chris_p = egarch_22std_10d_var_95_metrics$cc.LRp,
+    egarch_22std_10d_95_chris_decision = egarch_22std_10d_var_95_metrics$cc.Decision,
+    egarch_22std_10d_99_violations = egarch_22std_10d_var_99_metrics$actual.exceed,
+    egarch_22std_10d_99_kupic_p = egarch_22std_10d_var_99_metrics$uc.LRp,
+    egarch_22std_10d_99_kupic_decision = egarch_22std_10d_var_99_metrics$uc.Decision,
+    egarch_22std_10d_99_chris_p = egarch_22std_10d_var_99_metrics$cc.LRp,
+    egarch_22std_10d_99_chris_decision = egarch_22std_10d_var_99_metrics$cc.Decision,
+    
+    tgarch_11std_10d_95_violations = tgarch_11std_10d_var_95_metrics$actual.exceed,
+    tgarch_11std_10d_95_kupic_p = tgarch_11std_10d_var_95_metrics$uc.LRp,
+    tgarch_11std_10d_95_kupic_decision = tgarch_11std_10d_var_95_metrics$uc.Decision,
+    tgarch_11std_10d_95_chris_p = tgarch_11std_10d_var_95_metrics$cc.LRp,
+    tgarch_11std_10d_95_chris_decision = tgarch_11std_10d_var_95_metrics$cc.Decision,
+    tgarch_11std_10d_99_violations = tgarch_11std_10d_var_99_metrics$actual.exceed,
+    tgarch_11std_10d_99_kupic_p = tgarch_11std_10d_var_99_metrics$uc.LRp,
+    tgarch_11std_10d_99_kupic_decision = tgarch_11std_10d_var_99_metrics$uc.Decision,
+    tgarch_11std_10d_99_chris_p = tgarch_11std_10d_var_99_metrics$cc.LRp,
+    tgarch_11std_10d_99_chris_decision = tgarch_11std_10d_var_99_metrics$cc.Decision,
+    
+    tgarch_21std_10d_95_violations = tgarch_21std_10d_var_95_metrics$actual.exceed,
+    tgarch_21std_10d_95_kupic_p = tgarch_21std_10d_var_95_metrics$uc.LRp,
+    tgarch_21std_10d_95_kupic_decision = tgarch_21std_10d_var_95_metrics$uc.Decision,
+    tgarch_21std_10d_95_chris_p = tgarch_21std_10d_var_95_metrics$cc.LRp,
+    tgarch_21std_10d_95_chris_decision = tgarch_21std_10d_var_95_metrics$cc.Decision,
+    tgarch_21std_10d_99_violations = tgarch_21std_10d_var_99_metrics$actual.exceed,
+    tgarch_21std_10d_99_kupic_p = tgarch_21std_10d_var_99_metrics$uc.LRp,
+    tgarch_21std_10d_99_kupic_decision = tgarch_21std_10d_var_99_metrics$uc.Decision,
+    tgarch_21std_10d_99_chris_p = tgarch_21std_10d_var_99_metrics$cc.LRp,
+    tgarch_21std_10d_99_chris_decision = tgarch_21std_10d_var_99_metrics$cc.Decision,
+    
+    tgarch_12std_10d_95_violations = tgarch_12std_10d_var_95_metrics$actual.exceed,
+    tgarch_12std_10d_95_kupic_p = tgarch_12std_10d_var_95_metrics$uc.LRp,
+    tgarch_12std_10d_95_kupic_decision = tgarch_12std_10d_var_95_metrics$uc.Decision,
+    tgarch_12std_10d_95_chris_p = tgarch_12std_10d_var_95_metrics$cc.LRp,
+    tgarch_12std_10d_95_chris_decision = tgarch_12std_10d_var_95_metrics$cc.Decision,
+    tgarch_12std_10d_99_violations = tgarch_12std_10d_var_99_metrics$actual.exceed,
+    tgarch_12std_10d_99_kupic_p = tgarch_12std_10d_var_99_metrics$uc.LRp,
+    tgarch_12std_10d_99_kupic_decision = tgarch_12std_10d_var_99_metrics$uc.Decision,
+    tgarch_12std_10d_99_chris_p = tgarch_12std_10d_var_99_metrics$cc.LRp,
+    tgarch_12std_10d_99_chris_decision = tgarch_12std_10d_var_99_metrics$cc.Decision,
+    
+    tgarch_22std_10d_95_violations = tgarch_22std_10d_var_95_metrics$actual.exceed,
+    tgarch_22std_10d_95_kupic_p = tgarch_22std_10d_var_95_metrics$uc.LRp,
+    tgarch_22std_10d_95_kupic_decision = tgarch_22std_10d_var_95_metrics$uc.Decision,
+    tgarch_22std_10d_95_chris_p = tgarch_22std_10d_var_95_metrics$cc.LRp,
+    tgarch_22std_10d_95_chris_decision = tgarch_22std_10d_var_95_metrics$cc.Decision,
+    tgarch_22std_10d_99_violations = tgarch_22std_10d_var_99_metrics$actual.exceed,
+    tgarch_22std_10d_99_kupic_p = tgarch_22std_10d_var_99_metrics$uc.LRp,
+    tgarch_22std_10d_99_kupic_decision = tgarch_22std_10d_var_99_metrics$uc.Decision,
+    tgarch_22std_10d_99_chris_p = tgarch_22std_10d_var_99_metrics$cc.LRp,
+    tgarch_22std_10d_99_chris_decision = tgarch_22std_10d_var_99_metrics$cc.Decision,
+    # Backtesting results
+    his_95_qs = his_95_qs,
+    garch_11std_95_qs = garch_11std_95_qs,
+    garch_12std_95_qs = garch_12std_95_qs,
+    garch_21std_95_qs = garch_21std_95_qs,
+    garch_22std_95_qs = garch_22std_95_qs,
+    egarch_11std_95_qs = egarch_11std_95_qs,
+    egarch_12std_95_qs = egarch_12std_95_qs,
+    egarch_21std_95_qs = egarch_21std_95_qs,
+    egarch_22std_95_qs = egarch_22std_95_qs,
+    tgarch_11std_95_qs = tgarch_11std_95_qs,
+    tgarch_12std_95_qs = tgarch_12std_95_qs,
+    tgarch_21std_95_qs = tgarch_21std_95_qs,
+    tgarch_22std_95_qs = tgarch_22std_95_qs,
+    
+    his_99_qs = his_99_qs,
+    garch_11std_99_qs = garch_11std_99_qs,
+    garch_12std_99_qs = garch_12std_99_qs,
+    garch_21std_99_qs = garch_21std_99_qs,
+    garch_22std_99_qs = garch_22std_99_qs,
+    egarch_11std_99_qs = egarch_11std_99_qs,
+    egarch_12std_99_qs = egarch_12std_99_qs,
+    egarch_21std_99_qs = egarch_21std_99_qs,
+    egarch_22std_99_qs = egarch_22std_99_qs,
+    tgarch_11std_99_qs = tgarch_11std_99_qs,
+    tgarch_12std_99_qs = tgarch_12std_99_qs,
+    tgarch_21std_99_qs = tgarch_21std_99_qs,
+    tgarch_22std_99_qs = tgarch_22std_99_qs,
+    
+    garch_11std_10d_95_qs = garch_11std_10d_95_qs,
+    garch_12std_10d_95_qs = garch_12std_10d_95_qs,
+    garch_21std_10d_95_qs = garch_21std_10d_95_qs,
+    garch_22std_10d_95_qs = garch_22std_10d_95_qs,
+    egarch_11std_10d_95_qs = egarch_11std_10d_95_qs,
+    egarch_12std_10d_95_qs = egarch_12std_10d_95_qs,
+    egarch_21std_10d_95_qs = egarch_21std_10d_95_qs,
+    egarch_22std_10d_95_qs = egarch_22std_10d_95_qs,
+    tgarch_11std_10d_95_qs = tgarch_11std_10d_95_qs,
+    tgarch_12std_10d_95_qs = tgarch_12std_10d_95_qs,
+    tgarch_21std_10d_95_qs = tgarch_21std_10d_95_qs,
+    tgarch_22std_10d_95_qs = tgarch_22std_10d_95_qs,
+    
+    garch_11std_10d_99_qs = garch_11std_10d_99_qs,
+    garch_12std_10d_99_qs = garch_12std_10d_99_qs,
+    garch_21std_10d_99_qs = garch_21std_10d_99_qs,
+    garch_22std_10d_99_qs = garch_22std_10d_99_qs,
+    egarch_11std_10d_99_qs = egarch_11std_10d_99_qs,
+    egarch_12std_10d_99_qs = egarch_12std_10d_99_qs,
+    egarch_21std_10d_99_qs = egarch_21std_10d_99_qs,
+    egarch_22std_10d_99_qs = egarch_22std_10d_99_qs,
+    tgarch_11std_10d_99_qs = tgarch_11std_10d_99_qs,
+    tgarch_12std_10d_99_qs = tgarch_12std_10d_99_qs,
+    tgarch_21std_10d_99_qs = tgarch_21std_10d_99_qs,
+    tgarch_22std_10d_99_qs = tgarch_22std_10d_99_qs
   )
 }
 
@@ -1263,5 +1784,5 @@ final_results <- do.call(rbind, results)
 final_var_results <- do.call(rbind, var_results)
 
 # Save results to CSV
-write.csv(final_results, "results_20250727.csv", row.names = FALSE)
-write.csv(final_var_results, "var_results_20250727.csv", row.names = FALSE)
+write.csv(final_results, "results_20250803_full.csv", row.names = FALSE)
+write.csv(final_var_results, "var_results_20250803_full.csv", row.names = FALSE)
