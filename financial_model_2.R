@@ -28,10 +28,10 @@ var_results <- list()
 
 # Define look-back window lengths in trading days
 window_lengths <- list(
-# '3_months' = 63,     # 21 trading days/month × 3
+ '3_months' = 63     # 21 trading days/month × 3
 #  '6_months' = 126
 #  '1_year'   = 250
-  '2_year'   = 500
+#  '2_year'   = 500
 #  'full'     = NA      # All available data up to the selected date
 )
 

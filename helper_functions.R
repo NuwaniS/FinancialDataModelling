@@ -23,6 +23,8 @@ library(xts)
 # 10. calculate_garch_metrics
 # 11. garch_var_test
 # 12. mean_quantile_loss
+# 13. GARCH 1d VaR
+# 14. GARCH 10d VaR
 
 # Define a function for the plots
 plot_time_series_data <- function(model_data, model_name) {
@@ -397,8 +399,51 @@ garch_var_test <- function(calculated_var_series, test_data, confidence = 0.95) 
   valid_idx <- which(!is.na(garch_var_xts))
   garch_var_xts_clean <- garch_var_xts[valid_idx]
   test_data_clean <- test_data[valid_idx]
-  metric_values <- VaRTest(1-confidence, test_data_clean, garch_var_xts_clean, confidence)
+  metric_values <- rugarch::VaRTest(1-confidence, test_data_clean, garch_var_xts_clean, confidence)
   return (metric_values)
+}
+
+garch_var_test_all <- function(var_list, test_data, confidence = 0.95) {
+  # Combine actuals and forecasts
+  all_data <- c(list(actual = test_data), var_list)
+  
+  # Find complete cases
+  keep_idx <- complete.cases(do.call(cbind, all_data))
+  
+  # Cleaned inputs
+  actual_clean <- test_data[keep_idx]
+  var_clean_list <- lapply(var_list, function(f) f[keep_idx])
+  
+  # Run VaRTest
+  var_test_results <- lapply(var_clean_list, function(f) 
+    rugarch::VaRTest(alpha = 1 - confidence, actual_clean, f, conf.level = confidence))
+  
+  return(var_test_results)
+}
+
+mean_quantile_loss_all <- function(calculated_var_series, test_data, alpha = 0.05) {
+  # Combine actuals and forecasts
+  all_data <- c(list(actual = test_data), calculated_var_series)
+  
+  # Find complete cases
+  keep_idx <- complete.cases(do.call(cbind, all_data))
+  
+  # Cleaned inputs
+  actual_clean <- test_data[keep_idx]
+  var_clean_list <- lapply(calculated_var_series, function(f) f[keep_idx])
+  
+  q_loss_results <- sapply(var_clean_list, function(forecast) {
+    mean_quantile_loss_nomask(forecast, actual_clean, alpha)
+  })
+  
+  return (q_loss_results)
+}
+
+mean_quantile_loss_nomask <- function(calculated_var_series, test_data, alpha = 0.05) {
+  
+  error <- test_data - calculated_var_series
+  loss <- ifelse(test_data < calculated_var_series, (1 - alpha) * abs(error), alpha * abs(error))
+  return(mean(loss))
 }
 
 mean_quantile_loss <- function(calculated_var_series, test_data, alpha = 0.05) {
@@ -408,3 +453,36 @@ mean_quantile_loss <- function(calculated_var_series, test_data, alpha = 0.05) {
   loss <- ifelse(test_data[mask] < calculated_var_series[mask], (1 - alpha) * abs(error), alpha * abs(error))
   return(mean(loss))
 }
+
+garch_1d_10d_var <- function(garch_model, garch_forecast_1d, garch_forecast_10d) {
+  # GARCH parameters
+  alpha_95 <- 0.05            # for 95% confidence
+  alpha_99 <- 0.01            # for 99% confidence
+  
+  params <- coef(garch_model)
+  shape <- params["shape"]
+  q_95 <- qdist("std", p = alpha_95, shape = shape)
+  q_99 <- qdist("std", p = alpha_99, shape = shape)
+  
+  # 1d VaR
+  mu <- fitted(garch_forecast_1d)[1]
+  sigma <- sigma(garch_forecast_1d)[1]
+  garch_var_95 <- mu + q_95 * sigma    # 95% confidence
+  garch_var_99 <- mu + q_99 * sigma    # 99% confidence
+  
+  # 10d VaR
+  mu <- fitted(garch_forecast_10d)[1]
+  sigma <- sigma(garch_forecast_10d)[1]
+  # Compute cumulative 10-day VaR assuming mean and variance are additive
+  # Sum of mu and sum of variances
+  mu_10d <- sum(mu)
+  var_10d <- sum(sigma^2)
+  sd_10d <- sqrt(var_10d)
+  
+  garch_var_10d_95 <- mu_10d + q_95 * sd_10d # 95% confidence
+  garch_var_10d_99 <- mu_10d + q_99 * sd_10d # 99% confidence
+  
+  return(list(garch_var_95 = garch_var_95, garch_var_99 = garch_var_99, 
+              garch_var_10d_95 = garch_var_10d_95, garch_var_10d_99 = garch_var_10d_99))
+}
+
