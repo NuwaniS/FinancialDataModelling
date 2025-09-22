@@ -4,15 +4,15 @@ if (!require("rugarch")) install.packages("rugarch")
 library(quantmod)
 library(rugarch)
 
-source('helper_functions.R')
+source('R/helper_functions.R')
 
 # Download the FTSE 100 Index data
 # Uncomment this block only when you need new data
 #getSymbols("^FTSE", src = "yahoo", from = "2000-01-01")
-#write.zoo(FTSE, file = "FTSE_raw_data.csv", sep = ",")
+#write.zoo(FTSE, file = "data/FTSE_raw_data.csv", sep = ",")
 
 # Read the CSV file
-data <- read.csv('FTSE_raw_data.csv', stringsAsFactors = FALSE)
+data <- read.csv('data/FTSE_raw_data.csv', stringsAsFactors = FALSE)
 
 # Convert the first column to Date
 data$Index <- as.Date(data$Index)

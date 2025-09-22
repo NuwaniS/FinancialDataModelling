@@ -7,27 +7,27 @@ library(quantmod)
 
 # FTSE 100 Index data
 getSymbols("^FTSE", src = "yahoo", from = "2000-01-01")
-write.zoo(FTSE, file = "FTSE_raw_data.csv", sep = ",")
+write.zoo(FTSE, file = "data/FTSE_raw_data.csv", sep = ",")
 
 # FTSE 200 Index data
 getSymbols("^FTMC", src = "yahoo")
-write.zoo(FTMC, file = "FTMC_raw_data.csv", sep = ",")
+write.zoo(FTMC, file = "data/FTMC_raw_data.csv", sep = ",")
 
 #FTSE 350  Index 
 getSymbols("^FTLC", src = "yahoo")
-write.zoo(FTLC, file = "FTLC_raw_data.csv", sep = ",")
+write.zoo(FTLC, file = "data/FTLC_raw_data.csv", sep = ",")
 
 #FTSE All share Index 
 getSymbols("^FTAS", src = "yahoo")
-write.zoo(FTAS, file = "FTAS_raw_data.csv", sep = ",")
+write.zoo(FTAS, file = "data/FTAS_raw_data.csv", sep = ",")
 
 #FTSE AIM All Share Index 
 getSymbols("^FTAI", src="yahoo")
-write.zoo(FTAI, file = "FTAI_raw_data.csv", sep = ",")
+write.zoo(FTAI, file = "data/FTAI_raw_data.csv", sep = ",")
 
 #FTSE SmallCap (^FTSC)
 getSymbols("^FTSC", src="yahoo")
-write.zoo(FTSC, file = "FTSC_raw_data.csv", sep = ",")
+write.zoo(FTSC, file = "data/FTSC_raw_data.csv", sep = ",")
 
 #Only the last plot is visible here. But use this for reference
 plot_data <- function(symbol_price_data, index_name) {

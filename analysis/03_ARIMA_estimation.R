@@ -1,9 +1,10 @@
+# This script contains ARIMA model estimations for different periods on FTSE 100.
 if (!require("forecast")) install.packages("forecast")
 
 library(quantmod)
 library(forecast)
 
-source('helper_functions.R')
+source('R/helper_functions.R')
 
 # Evaluate dataset over specified date ranges
 evaluate_dataset <- function(symbol_name, csv_file_name, date_ranges) {
@@ -92,8 +93,7 @@ evaluate_dataset <- function(symbol_name, csv_file_name, date_ranges) {
 
 # Load the data sets
 datasets <- list(
-  FTSE_100 = 'FTSE_raw_data.csv',
-  FTSE_200 = 'FTMC_raw_data.csv'
+  FTSE_100 = 'data/FTSE_raw_data.csv'
 )
 
 date_ranges <- list(

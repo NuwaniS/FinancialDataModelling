@@ -5,10 +5,10 @@ library(forecast)
 library(rugarch)
 library(xts)
 
-source('helper_functions.R')
+source('R/helper_functions.R')
 
 # Read the CSV
-data <- read.csv('FTSE_raw_data.csv', stringsAsFactors = FALSE)
+data <- read.csv('data/FTSE_raw_data.csv', stringsAsFactors = FALSE)
 
 # Convert the first column to Date
 data$Index <- as.Date(data$Index)
@@ -28,11 +28,11 @@ var_results <- list()
 
 # Define look-back window lengths in trading days
 window_lengths <- list(
-  '3_months' = 63     # 21 trading days/month × 3
-  #  '6_months' = 126
-  #  '1_year'   = 250
-  #  '2_year'   = 500
-  #  'full'     = NA      # All available data up to the selected date
+  '3_months' = 63,     # 21 trading days/month × 3
+  '6_months' = 126,
+  '1_year'   = 250,
+  '2_year'   = 500,
+  'full'     = NA      # All available data up to the selected date
 )
 
 # GARCH parameters
@@ -40,15 +40,10 @@ alpha_95 <- 0.05            # for 95% confidence
 alpha_99 <- 0.01            # for 99% confidence
 
 # Set date range for VaR estimation
-# Initial Test Dates
-#forward_start_date <- as.Date("2025-01-02")
-#forward_end_date   <- as.Date("2025-05-19")
 
 # Test Dates considering the whole data set
 forward_start_date <- as.Date("2001-01-02")
 forward_end_date   <- as.Date("2025-05-19")
-
-# Test Dates for the demo
 
 test_dates <- index(log_returns)[index(log_returns) >= forward_start_date & index(log_returns) <= forward_end_date]
 test_data_1d_all <- log_returns[test_dates]
@@ -1440,5 +1435,5 @@ final_results <- do.call(rbind, results)
 final_var_results <- do.call(rbind, var_results)
 
 # Save results to CSV
-write.csv(final_results, "results_20250816_3m.csv", row.names = FALSE)
-write.csv(final_var_results, "var_results_20250816_3m.csv", row.names = FALSE)
+write.csv(final_results, "results.csv", row.names = FALSE)
+write.csv(final_var_results, "var_results.csv", row.names = FALSE)

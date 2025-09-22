@@ -1,4 +1,4 @@
-# Use this file to save plots because the plots can't be generated inside loops in R.
+# Use this file to genarate and save plots
 
 library(xts)
 

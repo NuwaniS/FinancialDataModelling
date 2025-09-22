@@ -4,7 +4,7 @@ library(forecast)
 library(quantmod)
 
 # Read the CSV file
-data <- read.csv('FTSE_raw_data.csv', stringsAsFactors = FALSE)
+data <- read.csv('data/FTSE_raw_data.csv', stringsAsFactors = FALSE)
 
 # Convert the first column to Date
 data$Index <- as.Date(data$Index)

@@ -1,6 +1,6 @@
 # This script contains an exploration of the simulated ARIMA models
 
-source('helper_functions.R')
+source('R/helper_functions.R')
 
 ###  AR(p) Model  ###
 set.seed(123)
@@ -49,3 +49,4 @@ arima_process <- arima.sim(n = 500, model = list(order = c(1, 1, 1), ar = c(0.4)
 plot_time_series_data(arima_process, model_name)
 s_test <- stationarity_tests(arima_process)
 print(s_test)
+

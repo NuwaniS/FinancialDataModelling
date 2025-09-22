@@ -1,3 +1,4 @@
+# This script contains calculating GARCH VaR
 library(rugarch)
 library(quantmod)
 library(xts)

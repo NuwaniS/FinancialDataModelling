@@ -12,7 +12,7 @@ if (!dir.exists(plot_dir)) {
 }
 
 # Read the Excel sheet
-df <- read.csv("results_20250821.csv", stringsAsFactors = FALSE)
+df <- read.csv("./results.csv", stringsAsFactors = FALSE)
 
 # View first few rows
 head(df)
