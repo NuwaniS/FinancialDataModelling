@@ -40,16 +40,18 @@ summary(symbol_prices)
 
 # Stationarity tests
 stationarity_tests(symbol_prices)
+normality_tests(as.ts(symbol_prices))
 
 # Calculate log returns
 #log_returns <- diff(log(coredata(symbol_prices)))
 log_returns <- dailyReturn(symbol_prices, type = "log")
 
-plot_time_series_data(log_returns, paste('FTSE 100 Log Returns', '2000-2025'))
+plot_time_series_data(log_returns, 'FTSE 100 Log Returns')
 
 plot_zoomed_hist(log_returns, paste('FTSE 100 Log Returns', '2000-2025'), 4)
-# Stationary Test for log returns
+# Stationary Test and Normality for log returns
 stationarity_tests(log_returns)
+normality_tests(as.ts(log_returns))
 
 #### Training and Testing Data Split ####
 
@@ -58,8 +60,6 @@ test_size <- 20
 # Split the data into training and testing sets
 train_data <- head(log_returns, -test_size)
 test_data <- tail(log_returns, test_size)
-
-## Find a way to plot it nicely
 
 #### ARIMA ####
 

@@ -1,4 +1,7 @@
 library(rugarch)
+library(xts)
+library(forecast)
+library(quantmod)
 
 # Read the CSV file
 data <- read.csv('FTSE_raw_data.csv', stringsAsFactors = FALSE)
@@ -30,7 +33,24 @@ fit <- ugarchfit(spec = spec, data = log_returns)
 # Extract conditional sigma (volatility)
 garch_vol <- sigma(fit)
 
+# Plot raw data
+par(xaxs = "i") 
+plot(zoo(symbol_prices), main = "Adjusted Closing Price of FTSE 100", 
+     type = 'l', col = "darkgreen", ylab = "Value", xlab = "Date", lwd = 1)
+grid(col = "gray", lty = "dotted")
+
+# Plot only Log Returns
+par(xaxs = "i") 
+plot(zoo(log_returns), main = "FTSE 100 Log Returns", 
+     type = 'l', col = "darkgreen", ylab = "Log Returns", xlab = "Date", lwd = 1)
+grid(col = "gray", lty = "dotted")
+
 # Plot GARCH volatility
-plot(log_returns, main = "FTSE 100 Daily Returns with Volatility", col = "darkgreen")
-lines(garch_vol, col = "red")
-legend("bottomleft", legend=c("Daily Returns", "GARCH(1,1) Volatility"), col=c("darkgreen", "red"), lty=1, cex = 0.7, xpd = TRUE)
+par(xaxs = "i") 
+plot(zoo(log_returns), main = "FTSE 100 Log Returns with Volatility", 
+     type = 'l', col = "darkgreen", ylab = "", xlab = "Date", lwd = 1)
+grid(col = "gray", lty = "dotted")
+lines(zoo(garch_vol), col = "red", lwd = 1.5)
+legend("topleft", legend=c("Daily Returns", "GARCH(1,1) Volatility"), col=c("darkgreen", "red"), lty=1,
+       cex = 0.6, xpd = TRUE)
+

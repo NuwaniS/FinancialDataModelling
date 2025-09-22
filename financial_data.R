@@ -4,8 +4,6 @@ library(quantmod)
 # You can select different symbols and different time frames
 # Download S$P 500 Index data
 #getSymbols("^GSPC", src = "yahoo", from = "2009-01-01", to = "2023-10-31")
-getSymbols("^GSPC", src = "yahoo")
-write.zoo(GSPC, file = "GSPC_raw_data.csv", sep = ",")
 
 # FTSE 100 Index data
 getSymbols("^FTSE", src = "yahoo", from = "2000-01-01")

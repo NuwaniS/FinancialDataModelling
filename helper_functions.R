@@ -41,16 +41,18 @@ plot_time_series_data <- function(model_data, model_name) {
   data_sd <- sd(model_data)
   
   # Add histogram of the time series data
-  hist(model_data, breaks = 50, probability = TRUE, main=paste("Density of ",model_name, " vs Normal Distribution"))
+  hist(model_data, breaks = 50, probability = TRUE, main=paste("Empirical vs Normal Distribution of ",model_name),
+       xlab = "Log Returns",
+       ylim = c(0, max(density(model_data)$y, dnorm(seq(min(model_data), max(model_data), length.out = 100), mean = data_mean, sd = data_sd))))
   
   # Plot the density of the time series data
-  lines(density(model_data), lwd=2)
+  lines(density(model_data), col = "blue", lwd=2)
   
   # Add a normal distribution for comparison
-  curve(dnorm(x, mean = data_mean, sd = data_sd), col = "orange", lwd = 2, add = TRUE)
+  curve(dnorm(x, mean = data_mean, sd = data_sd), col = "red", lty="dotdash", lwd = 2, add = TRUE)
   
   # Add legend
-  legend("topright", legend=c("Empirical", "Normal"), col=c("black", "orange"), lwd=2)
+  legend("topright", legend=c("Empirical", "Normal"), col=c("blue", "red"), lwd=2, lty=c(1,4))
   
   #Boxplot
   boxplot(model_data, main = "Boxplot of Adjusted Closing Prices", ylab = "Price")
@@ -354,28 +356,30 @@ plot_zoomed_hist <- function(model_data, model_name, tail_range = 3) {
   # Change the values of min and x_max to get the required range
   x_min <- mean(model_data) - tail_range * sd(model_data)
   x_max <- mean(model_data) + tail_range * sd(model_data)
-  x_max <- -0.015
-  x_min <- -0.05
+  x_min <- 0.015
+  x_max <- 0.05
   
-  hist(model_data, breaks = 50, probability = TRUE, xlim = c(x_min, x_max), 
-       main=paste("Density of ",model_name, " vs Normal Distribution"))
+  hist(model_data, breaks = 50, probability = TRUE, xlim = c(x_min,x_max), ylim = c(0, 5), 
+       main=paste("Empirical vs Normal Distributions of Log Returns (Right Tail)"),
+       xlab = "Log Returns")
   
   # Plot the density of the time series data
-  lines(density(model_data), lwd=2)
+  lines(density(model_data), col= "blue", lwd=2)
   
   # Add a normal distribution for comparison
-  curve(dnorm(x, mean = mean(model_data), sd = sd(model_data)), col = "orange", lwd = 2, add = TRUE)
+  curve(dnorm(x, mean = mean(model_data), sd = sd(model_data)), col = "red", lwd = 2, add = TRUE)
   
   # Add legend
-  legend("topright", legend=c("Empirical", "Normal"), col=c("black", "orange"), lwd=2)
+  legend("topright", legend=c("Empirical", "Normal"), col=c("blue", "red"), lwd=2)
 }
 
-calculate_garch_metrics <- function(garch_model, order) {
+calculate_garch_metrics <- function(garch_model, order, win_length) {
   
   if (!is.null(garch_model) && garch_model@fit$convergence == 0) {
     aic <- infocriteria(garch_model)[1]
     bic <- infocriteria(garch_model)[2]
     like <- likelihood(garch_model)
+    n_like <- like / win_length          # Normalized log likelihood
     if (order == 1) {  # (1,1) model
       a_b <- coef(garch_model)['alpha1'] + coef(garch_model)['beta1']    
     } else if (order == 2) {  # (1,2) model
@@ -390,8 +394,9 @@ calculate_garch_metrics <- function(garch_model, order) {
     bic <- NA
     like <- NA
     a_b <- NA
+    n_like <- NA
   }
-  return(list(aic = aic, bic = bic, like = like, a_b = a_b))
+  return(list(aic = aic, bic = bic, like = like, n_like=n_like, a_b = a_b))
 }
 
 garch_var_test <- function(calculated_var_series, test_data, confidence = 0.95) {
@@ -486,3 +491,10 @@ garch_1d_10d_var <- function(garch_model, garch_forecast_1d, garch_forecast_10d)
               garch_var_10d_95 = garch_var_10d_95, garch_var_10d_99 = garch_var_10d_99))
 }
 
+print_summary_model_metrics <- function(model_metrics) {
+  # Use sapply to calculate the mean and median for each list
+  summary_stats <- sapply(model_metrics, function(x) c(mean = mean(x, na.rm = TRUE), median = median(x, na.rm = TRUE)))
+  
+  # Print the summary statistics
+  print(summary_stats)
+}

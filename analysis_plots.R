@@ -1,3 +1,6 @@
+# This R Script was used to read the all_results.csv file and generate plots which shows accuracy metrics and
+# model evaluation metrics (But those plots were not added to the report)
+
 library(xts)
 library(readxl)
 library(dplyr)
@@ -9,12 +12,12 @@ if (!dir.exists(plot_dir)) {
 }
 
 # Read the Excel sheet
-df <- read.csv("results_20250803.csv", stringsAsFactors = FALSE)
+df <- read.csv("results_20250821.csv", stringsAsFactors = FALSE)
 
 # View first few rows
 head(df)
 
-# Convert the first column to Date
+# Convert the first column to Date which serves as the index
 df$Date <- as.Date(df$Date, format = "%m/%d/%Y")
 
 plot_different_lookback_windows <- function(file_name, title, data_3m, data_6m, data_1y, data_2y, data_full, y_lab) {
@@ -261,3 +264,4 @@ egarch_11_10d_rmse_full <- df %>% filter(LookBackWin == 'full') %>% select(Date,
 plot_different_lookback_windows('egarch_11_10d_rmse.png', 'eGARCH(1,1) - 10d Forecast RMSE Values', 
                                 egarch_11_1d_rmse_3m, egarch_11_1d_rmse_6m, egarch_11_1d_rmse_1y,
                                 egarch_11_1d_rmse_2y, egarch_11_1d_rmse_full, 'RMSE')
+

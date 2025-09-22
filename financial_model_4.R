@@ -1,4 +1,4 @@
-# This is the model used to generate the results after discussion on 20/06/2025
+# This is the model used to generate the the final results
 
 library(quantmod)
 library(forecast)
@@ -29,10 +29,10 @@ var_results <- list()
 # Define look-back window lengths in trading days
 window_lengths <- list(
   '3_months' = 63     # 21 trading days/month × 3
-  #  '6_months' = 126
-  #  '1_year'   = 250
-  #  '2_year'   = 500
-  #  'full'     = NA      # All available data up to the selected date
+  '6_months' = 126
+  '1_year'   = 250
+  '2_year'   = 500
+  'full'     = NA      # All available data up to the selected date
 )
 
 # GARCH parameters
@@ -41,7 +41,8 @@ alpha_99 <- 0.01            # for 99% confidence
 
 # Set date range for VaR estimation
 # Initial Test Dates
-forward_start_date <- as.Date("2025-01-02")
+#forward_start_date <- as.Date("2025-01-02")
+forward_start_date <- as.Date("2024-05-01")
 forward_end_date   <- as.Date("2025-05-19")
 
 # Test Dates for the demo
@@ -69,32 +70,55 @@ for (win_name in names(window_lengths)) {
   tgarch_forecast_11_std_10d_list <- list()
   
   var_series_1d_95 <- list(
-    his_var_series_95 = numeric(N),
-    garch_11std_var_series_95 = numeric(N),
-    egarch_11std_var_series_95 = numeric(N),
-    tgarch_11std_var_series_95 = numeric(N)
+    his_var_series_95 <- numeric(N),
+    garch_11std_var_series_95 <- numeric(N),
+    egarch_11std_var_series_95 <- numeric(N),
+    tgarch_11std_var_series_95 <- numeric(N)
   )
   
   var_series_10d_95 <- list(
-    his_var_series_10d_95 = numeric(N),
-    garch_11std_10d_var_series_95 = numeric(N),
-    egarch_11std_10d_var_series_95 = numeric(N),
-    tgarch_11std_10d_var_series_95 = numeric(N)
+    his_var_series_10d_95 <- numeric(N),
+    garch_11std_10d_var_series_95 <- numeric(N),
+    egarch_11std_10d_var_series_95 <- numeric(N),
+    tgarch_11std_10d_var_series_95 <- numeric(N)
   )
   
   var_series_1d_99 <- list(
-    his_var_series_99 = numeric(N),
-    garch_11std_var_series_99 = numeric(N),
-    egarch_11std_var_series_99 = numeric(N),
-    tgarch_11std_var_series_99 = numeric(N)
+    his_var_series_99 <- numeric(N),
+    garch_11std_var_series_99 <- numeric(N),
+    egarch_11std_var_series_99 <- numeric(N),
+    tgarch_11std_var_series_99 <- numeric(N)
   )
   
   var_series_10d_99 <- list(
-    his_var_series_10d_99 = numeric(N),
-    garch_11std_10d_var_series_99 = numeric(N),
-    egarch_11std_10d_var_series_99 = numeric(N),
-    tgarch_11std_10d_var_series_99 = numeric(N)
+    his_var_series_10d_99 <- numeric(N),
+    garch_11std_10d_var_series_99 <- numeric(N),
+    egarch_11std_10d_var_series_99 <- numeric(N),
+    tgarch_11std_10d_var_series_99 <- numeric(N)
   )
+  
+  model_metrics <- list(
+    aic_arima <- numeric(N),
+    aic_garch_11_std <- numeric(N),
+    aic_egarch_11_std <- numeric(N),
+    aic_tgarch_11_std <- numeric(N),
+    
+    bic_arima <- numeric(N),
+    bic_garch_11_std <- numeric(N),
+    bic_egarch_11_std <- numeric(N),
+    bic_tgarch_11_std <- numeric(N),
+    
+    log_arima <- numeric(N),
+    log_garch_11_std <- numeric(N),
+    log_egarch_11_std <- numeric(N),
+    log_tgarch_11_std <- numeric(N),
+    
+    nlog_arima <- numeric(N),
+    nlog_garch_11_std <- numeric(N),
+    nlog_egarch_11_std <- numeric(N),
+    nlog_tgarch_11_std <- numeric(N)
+  )
+  
   i = 1 # counter for the iterations
   
   for (current_date in test_dates) {
@@ -137,6 +161,11 @@ for (win_name in names(window_lengths)) {
     arima_10d <- forecast_evaluation(test_data_10d, arima_forecast_10d$mean)
     arima_forecast_10d_list[[i]] <- arima_forecast_10d$mean
     
+    model_metrics$aic_arima[i] <- arima_model$aic
+    model_metrics$bic_arima[i] <- arima_model$bic
+    model_metrics$log_arima[i] <- arima_model$loglik
+    model_metrics$nlog_arima[i] <- arima_model$loglik / window_len
+    
     #### GARCH ######
     arch_test <- arch_lm_test(residuals)
     
@@ -154,7 +183,11 @@ for (win_name in names(window_lengths)) {
       return(NULL)
     })
     
-    garch_11_std_metrics <- calculate_garch_metrics(garch_model_11_std, 1)
+    garch_11_std_metrics <- calculate_garch_metrics(garch_model_11_std, 1, window_len)
+    model_metrics$aic_garch_11_std[i] <- garch_11_std_metrics$aic
+    model_metrics$bic_garch_11_std[i] <- garch_11_std_metrics$bic
+    model_metrics$log_garch_11_std[i] <- garch_11_std_metrics$like
+    model_metrics$nlog_garch_11_std[i] <- garch_11_std_metrics$n_like
     
     if (!is.null(garch_model_11_std) && garch_model_11_std@fit$convergence == 0) {
       
@@ -205,7 +238,11 @@ for (win_name in names(window_lengths)) {
       return(NULL)
     })
     
-    egarch_11_std_metrics <- calculate_garch_metrics(egarch_model_11_std, 1)
+    egarch_11_std_metrics <- calculate_garch_metrics(egarch_model_11_std, 1, window_len)
+    model_metrics$aic_egarch_11_std[i] <- egarch_11_std_metrics$aic
+    model_metrics$bic_egarch_11_std[i] <- egarch_11_std_metrics$bic
+    model_metrics$log_egarch_11_std[i] <- egarch_11_std_metrics$like
+    model_metrics$nlog_egarch_11_std[i] <- egarch_11_std_metrics$n_like
     
     if (!is.null(egarch_model_11_std) && egarch_model_11_std@fit$convergence == 0) {
       
@@ -255,7 +292,11 @@ for (win_name in names(window_lengths)) {
       return(NULL)
     })
     
-    tgarch_11_std_metrics <- calculate_garch_metrics(tgarch_model_11_std, 1)
+    tgarch_11_std_metrics <- calculate_garch_metrics(tgarch_model_11_std, 1, window_len)
+    model_metrics$aic_tgarch_11_std[i] <- tgarch_11_std_metrics$aic
+    model_metrics$bic_tgarch_11_std[i] <- tgarch_11_std_metrics$bic
+    model_metrics$log_tgarch_11_std[i] <- tgarch_11_std_metrics$like
+    model_metrics$nlog_tgarch_11_std[i] <- tgarch_11_std_metrics$n_like
     
     if (!is.null(tgarch_model_11_std) && tgarch_model_11_std@fit$convergence == 0) {
       
@@ -332,6 +373,8 @@ for (win_name in names(window_lengths)) {
       Jarque = n_test$jarque_decision,
       AIC = arima_model$aic,
       BIC = arima_model$bic,
+      log_like = arima_model$loglik,
+      n_log_like = arima_model$loglik / window_len,
       ARIMA_1d_MAE = arima_1d$mae,
       ARIMA_1d_RMSE = arima_1d$rmse,
       ARIMA_1d_MAPE = arima_1d$mape,
@@ -389,6 +432,8 @@ for (win_name in names(window_lengths)) {
   print(paste(win_name, 'garch_11_std_10d', forecast_evaluation_10d(test_data_10d_list, garch_forecast_11_std_10d_list)))
   print(paste(win_name, 'egarch_11_std_10d ', forecast_evaluation_10d(test_data_10d_list, egarch_forecast_11_std_10d_list)))
   print(paste(win_name, 'tgarch_11_std_10d ', forecast_evaluation_10d(test_data_10d_list, tgarch_forecast_11_std_10d_list)))
+  
+  print_summary_model_metrics(model_metrics)
   
   test_data_cum_10d_xts <- xts(test_data_cum_10d_all, order.by = index(test_data_1d_all))
   
@@ -520,10 +565,12 @@ for (win_name in names(window_lengths)) {
     egarch_11std_99_qs = qs_1d_99[['egarch_11std_var_series_99']],
     tgarch_11std_99_qs = qs_1d_99[['tgarch_11std_var_series_99']],
     
+    his_95_10d_qs = qs_10d_95[['his_var_series_10d_95']],
     garch_11std_10d_95_qs = qs_10d_95[['garch_11std_10d_var_series_95']],
     egarch_11std_10d_95_qs = qs_10d_95[['egarch_11std_10d_var_series_95']],
     tgarch_11std_10d_95_qs = qs_10d_95[['tgarch_11std_10d_var_series_95']],
     
+    his_99_10d_qs = qs_10d_99[['his_var_series_10d_99']],
     garch_11std_10d_99_qs = qs_10d_99[['garch_11std_10d_var_series_99']],
     egarch_11std_10d_99_qs = qs_10d_99[['egarch_11std_10d_var_series_99']],
     tgarch_11std_10d_99_qs = qs_10d_99[['tgarch_11std_10d_var_series_99']]
@@ -535,5 +582,5 @@ final_results <- do.call(rbind, results)
 final_var_results <- do.call(rbind, var_results)
 
 # Save results to CSV
-write.csv(final_results, "results_20250817_3m.csv", row.names = FALSE)
-write.csv(final_var_results, "var_results_20250817_3m.csv", row.names = FALSE)
+write.csv(final_results, "results_20250907_3m.csv", row.names = FALSE)
+write.csv(final_var_results, "var_results_20250907_3m.csv", row.names = FALSE)
